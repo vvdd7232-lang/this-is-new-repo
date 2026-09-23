@@ -1,0 +1,167 @@
+/* AI Execute Runner — стили панели под execute-блоками */
+
+.ax-exec-panel {
+  margin: 8px 0 12px 0;
+  border: 1px solid #7c5cff55;
+  border-left: 4px solid #7c5cff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(124, 92, 255, 0.07);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: inherit;
+}
+.ax-exec-panel.ax-dark {
+  background: rgba(124, 92, 255, 0.12);
+}
+.ax-exec-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+.ax-exec-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 20px;
+  background: #7c5cff;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.ax-exec-runner {
+  font-size: 11px;
+  opacity: 0.75;
+  font-weight: 500;
+}
+.ax-exec-cmd-preview {
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 6px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 90px;
+  overflow: auto;
+}
+.ax-exec-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.ax-btn {
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ax-btn-run { background: #16a34a; color: #fff; }
+.ax-btn-run:hover { background: #15803d; }
+.ax-btn-run:disabled { opacity: 0.6; cursor: wait; }
+.ax-btn-copy { background: transparent; border-color: #999; color: inherit; }
+.ax-btn-insert { background: #7c5cff; color: #fff; }
+.ax-btn-insert:hover { background: #6a4de0; }
+.ax-exec-status { margin-top: 8px; font-size: 12px; }
+.ax-exec-status.ax-running { color: #b45309; }
+.ax-exec-status.ax-ok { color: #16a34a; }
+.ax-exec-status.ax-err { color: #dc2626; }
+.ax-exec-output {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 260px;
+  overflow: auto;
+}
+
+/* Модалка подтверждения */
+.ax-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 2147483647;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.ax-modal {
+  background: #fff; color: #111;
+  border-radius: 14px;
+  max-width: 640px; width: 100%;
+  max-height: 85vh; overflow: auto;
+  padding: 18px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+.ax-modal h3 { margin: 0 0 8px 0; font-size: 16px; }
+.ax-modal pre {
+  background: #0d1117; color: #e6edf3;
+  padding: 10px; border-radius: 8px;
+  font-size: 12px; white-space: pre-wrap; word-break: break-all;
+  max-height: 300px; overflow: auto;
+}
+.ax-modal .ax-warn {
+  margin: 10px 0; padding: 8px 10px;
+  background: #fef3c7; border: 1px solid #f59e0b;
+  border-radius: 8px; color: #92400e; font-size: 13px;
+}
+.ax-modal .ax-danger {
+  background: #fee2e2; border-color: #ef4444; color: #991b1b;
+}
+.ax-modal-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+.ax-btn-cancel { background: #e5e7eb; color: #111; }
+.ax-btn-confirm { background: #dc2626; color: #fff; }
+.ax-btn-confirm.safe { background: #16a34a; }
+
+/* Выбор среды выполнения */
+.ax-runner-select {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #999;
+  background: transparent;
+  color: inherit;
+  margin-left: 4px;
+}
+.ax-runner-row {
+  margin: 8px 0 2px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ax-modal-select {
+  background: #fff;
+  color: #111;
+}
+
+/* Тосты */
+.ax-toast {
+  position: fixed; bottom: 24px; left: 50%; pointer-events: none;
+  transform: translateX(-50%);
+  background: #111; color: #fff;
+  padding: 10px 16px; border-radius: 10px;
+  font-size: 13px; z-index: 2147483647;
+  font-family: system-ui, sans-serif;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  opacity: 0; transition: opacity .25s;
+}
+.ax-toast.ax-show { opacity: 1; }
+
+/* Индикатор сервера */
+#ax-server-dot {
+  position: fixed; right: 16px; bottom: 16px;
+  z-index: 2147483646;
+  font-family: system-ui, sans-serif;
+  font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 20px;
+  background: #111; color: #fff;
+  cursor: pointer; user-select: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+#ax-server-dot.ax-online { background: #16a34a; }
+#ax-server-dot.ax-offline { background: #dc2626; }

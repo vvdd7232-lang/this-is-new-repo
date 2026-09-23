@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 320px; margin: 0; padding: 14px; font-family: system-ui, sans-serif; font-size: 13px; }
+  h2 { margin: 0 0 6px 0; font-size: 15px; }
+  .row { margin: 8px 0; }
+  label { display: block; font-weight: 600; margin-bottom: 3px; }
+  input[type=text], input[type=number] { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #bbb; border-radius: 6px; }
+  .status { padding: 8px; border-radius: 8px; background: #f3f4f6; }
+  .status.ok { background: #dcfce7; } .status.err { background: #fee2e2; }
+  button { cursor: pointer; border: none; border-radius: 8px; padding: 8px 12px; font-weight: 700; }
+  .btn-main { background: #7c5cff; color: #fff; width: 100%; margin-top: 6px; }
+  .btn-ghost { background: #e5e7eb; width: 100%; margin-top: 6px; }
+  .hint { font-size: 12px; opacity: .75; margin-top: 8px; }
+  .check { display: flex; gap: 8px; align-items: flex-start; }
+</style>
+</head>
+<body>
+  <h2>⚡ AI Execute Runner</h2>
+  <div id="status" class="status">Проверка сервера…</div>
+  <div class="row">
+    <label>Адрес локального сервера</label>
+    <input type="text" id="serverUrl" value="http://127.0.0.1:8765">
+  </div>
+  <div class="row">
+    <label>Таймаут команды (сек)</label>
+    <input type="number" id="timeout" value="30" min="2" max="600">
+  </div>
+  <div class="row check">
+    <input type="checkbox" id="requireConfirm" checked>
+    <label for="requireConfirm" style="font-weight:500">Спрашивать подтверждение перед каждым запуском (рекомендуется!)</label>
+  </div>
+  <div style="border-top:1px solid #ddd; margin-top:10px; padding-top:8px;">
+    <div style="font-weight:700; margin-bottom:4px;">🤖 Автопилот</div>
+    <div class="row check"><input type="checkbox" id="autoExecute"><label for="autoExecute" style="font-weight:500">Автовыполнение новых execute-блоков</label></div>
+    <div class="row check"><input type="checkbox" id="autoInsert"><label for="autoInsert" style="font-weight:500">Автовставка вывода в поле ввода</label></div>
+    <div class="row check"><input type="checkbox" id="autoSend"><label for="autoSend" style="font-weight:500">Автоотправка результата ИИ (полный цикл)</label></div>
+    <div class="row"><label>Задержка перед автозапуском, сек (окно отмены)</label><input type="number" id="autoDelay" value="3" min="0" max="30"></div>
+    <div id="autoWarn" class="status err" style="display:none">⚠️ Автопилот включён: команды выполняются БЕЗ подтверждения. Опасные (rm -rf, sudo…) — всё равно только вручную.</div>
+  </div>
+  <button class="btn-main" id="save">💾 Сохранить</button>
+  <button class="btn-ghost" id="ping">🔄 Проверить подключение</button>
+  <button class="btn-ghost" id="copyPrompt">📋 Скопировать промпт для ИИ</button>
+  <button class="btn-ghost" id="openOptions">⚙️ Все настройки</button>
+  <div class="hint">1. Запусти <b>server.py</b> на ПК.<br>2. Вставь промпт первым сообщением в чат.<br>3. ИИ пишет <b>```execute</b> → жми <b>▶</b> под блоком.<br>Остальные настройки (поиск, лимиты, среда) — в ⚙️.</div>
+  <div class="hint" style="text-align:center;opacity:.55">AI Execute Runner <span id="ver">…</span></div>
+  <script src="prompt.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

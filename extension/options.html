@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>AI Execute Runner — Настройки</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f3f4f6; --card:#ffffff; --text:#111827; --muted:#6b7280;
+          --border:#e5e7eb; --accent:#7c5cff; --ok-bg:#dcfce7; --err-bg:#fee2e2; --code-bg:#0d1117; --code-fg:#e6edf3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111827; --card:#1f2937; --text:#f3f4f6; --muted:#9ca3af; --border:#374151;
+            --ok-bg:#14532d; --err-bg:#7f1d1d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 70px; background:var(--bg); color:var(--text);
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:14px; line-height:1.5; }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  header.top { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
+  header.top .logo { font-size:30px; }
+  header.top h1 { font-size:22px; margin:0; }
+  .muted { color: var(--muted); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin:14px 0; }
+  .card h2 { margin:0 0 2px 0; font-size:16px; }
+  .card .sub { color:var(--muted); font-size:13px; margin-bottom:10px; }
+  .field { margin:12px 0; }
+  .field > label.title { display:block; font-weight:600; margin-bottom:4px; }
+  .field .desc { color:var(--muted); font-size:12.5px; margin-top:3px; }
+  .check { display:flex; gap:10px; align-items:flex-start; margin:10px 0; }
+  .check input { margin-top:3px; width:16px; height:16px; flex:none; }
+  .check b { display:block; }
+  .check span.d { color:var(--muted); font-size:12.5px; font-weight:400; }
+  input[type=text], input[type=number], select {
+    width:100%; max-width:420px; padding:8px 10px; font-size:14px;
+    border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text);
+  }
+  input[type=number], select { max-width:220px; }
+  .btn { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 16px;
+         font-size:14px; font-weight:700; background:var(--card); color:var(--text); margin:4px 8px 4px 0; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.danger { color:#dc2626; }
+  code { font-family:ui-monospace, Consolas, monospace; font-size:12.5px; background:var(--bg);
+         border:1px solid var(--border); border-radius:6px; padding:1px 6px; }
+  .status { padding:10px 14px; border-radius:10px; background:var(--card); border:1px solid var(--border); margin:12px 0; font-size:13.5px; }
+  .status.ok { background:var(--ok-bg); }
+  .status.err { background:var(--err-bg); }
+  #autoWarn { display:none; margin-top:10px; }
+  .toolbar { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:10px 0; }
+  footer { margin-top:18px; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">⚡</div>
+    <div><h1>AI Execute Runner — Настройки</h1>
+    <div class="muted">Версия <span id="ver">…</span> · хранятся в Chrome Sync · применяются ко всем вкладкам сразу</div></div>
+  </header>
+
+  <div id="status" class="status">Загрузка настроек…</div>
+  <div class="toolbar"><button id="saveTop" class="btn primary">💾 Сохранить</button></div>
+
+  <section class="card">
+    <h2>🖥 Локальный сервер</h2>
+    <div class="sub">Программа <code>server.py</code> на твоём ПК — она и выполняет команды. Расширение только передаёт их.</div>
+    <div class="field">
+      <label class="title" for="serverUrl">Адрес сервера</label>
+      <input type="text" id="serverUrl">
+      <div class="desc">Обычно <code>http://127.0.0.1:8765</code>. Если запускал сервер с другим портом — впиши его сюда.</div>
+    </div>
+    <div class="field">
+      <label class="title" for="timeout">Таймаут команды, сек (2–600)</label>
+      <input type="number" id="timeout" min="2" max="600">
+      <div class="desc">Сколько ждать одну команду. Долгие (установка пакетов, тесты) — ставь 120–300.</div>
+    </div>
+    <div class="field">
+      <label class="title" for="defaultCwd">Рабочая папка для команд (пусто = папка сервера)</label>
+      <input type="text" id="defaultCwd" placeholder="например: C:\Users\Имя\projects">
+      <div class="desc">Все команды будут выполняться в этой папке. Должна существовать на ПК, иначе сервер вернёт ошибку «cwd not found».</div>
+    </div>
+    <button id="testBtn" class="btn">🔄 Проверить подключение</button>
+    <div class="desc" style="margin-top:8px">Запуск сервера: <code>python server.py [--port 8765] [--max-output N] [--verbose]</code></div>
+  </section>
+
+  <section class="card">
+    <h2>🛡️ Подтверждения</h2>
+    <div class="sub">Ручной режим: каждый запуск — только после твоего клика.</div>
+    <div class="check"><input type="checkbox" id="requireConfirm">
+      <label for="requireConfirm"><b>Спрашивать подтверждение перед каждым ручным запуском</b>
+      <span class="d">Окно с текстом команды + красное предупреждение на опасных (rm -rf, sudo, format…). Не выключай без нужды.</span></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>🤖 Автопилот</h2>
+    <div class="sub">Полный цикл без рук: команда выполняется сама → вывод сам вставляется → сам отправляется ИИ.</div>
+    <div class="check"><input type="checkbox" id="autoExecute">
+      <label for="autoExecute"><b>Автовыполнение новых execute-блоков</b>
+      <span class="d">Ждёт конца генерации → обратный отсчёт (окно отмены) → выполняет. Опасные команды — всё равно только вручную.</span></label>
+    </div>
+    <div class="check"><input type="checkbox" id="autoInsert">
+      <label for="autoInsert"><b>Автовставка вывода в поле ввода</b>
+      <span class="d"><code>[LOCAL EXEC RESULT]</code> сам появляется в поле чата после каждого выполнения.</span></label>
+    </div>
+    <div class="check"><input type="checkbox" id="autoSend">
+      <label for="autoSend"><b>Автоотправка результата ИИ</b>
+      <span class="d">Нажимает Send (запасной вариант — Enter). Вместе с двумя верхними даёт цикл как у Codex.</span></label>
+    </div>
+    <div class="field">
+      <label class="title" for="autoDelay">Задержка перед автозапуском, сек (0–30)</label>
+      <input type="number" id="autoDelay" min="0" max="30">
+      <div class="desc">Окно отмены с кнопкой «✋ Отмена авто». 0 — выполнять сразу после конца генерации.</div>
+    </div>
+    <div class="field">
+      <label class="title" for="maxAutoRuns">Лимит автозапусков на вкладку (0 = без лимита)</label>
+      <input type="number" id="maxAutoRuns" min="0" max="100000">
+      <div class="desc">Защита от бесконечного цикла, жрущего токены. Счётчик сбрасывается при перезагрузке вкладки.</div>
+    </div>
+    <div class="check"><input type="checkbox" id="autoWeak">
+      <label for="autoWeak"><b>Автозапуск блоков EXECUTE? (нестрого найденных)</b>
+      <span class="d" style="color:#b45309">Осторожно: это блоки, где язык не распознан, но рядом есть слово «execute». Эвристика может ошибиться.</span></label>
+    </div>
+    <div class="field">
+      <label class="title">История выполненных команд (<span id="histCount">…</span>)</label>
+      <div class="desc">Автопилот не выполняет повторно команды из прошлых загрузок вкладки (защита от прогона всей истории после F5). Повтор — вручную кнопкой ▶.</div>
+      <button id="clearHistory" class="btn" style="margin-top:6px">🗑 Очистить историю</button>
+    </div>
+    <div id="autoWarn" class="status err">⚠️ Автопилот включён: команды будут выполняться БЕЗ подтверждения. Опасные (rm -rf, sudo…) — всё равно только вручную.</div>
+  </section>
+
+  <section class="card">
+    <h2>🔀 Среды выполнения</h2>
+    <div class="sub">В чём запускать команды. Точный язык блока (<code>execute-python</code> и т.п.) всегда важнее этой настройки.</div>
+    <div class="field">
+      <label class="title" for="defaultRunner">Среда по умолчанию</label>
+      <select id="defaultRunner">
+        <option value="shell">shell — cmd на Windows / bash на Linux·Mac</option>
+        <option value="powershell">powershell</option>
+        <option value="python">python</option>
+        <option value="node">node</option>
+      </select>
+      <div class="desc">Используется для «Выполнить выделенное» (правый клик) и блоков EXECUTE?, где язык не распознан. На каждой панели среду можно переключить вручную — выбор запоминается автоматически.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>🔍 Поиск execute-блоков</h2>
+    <div class="sub">Как расширение находит команды в ответах ИИ.</div>
+    <div class="check"><input type="checkbox" id="looseSearch">
+      <label for="looseSearch"><b>Нестрогий поиск</b>
+      <span class="d">Кнопка ▶ появляется, даже если ИИ написал слово «execute» обычным текстом рядом с кодом. Строгая находка = панель EXECUTE, нестрогая = EXECUTE? (по умолчанию только вручную).</span></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📏 Лимиты вывода</h2>
+    <div class="sub">Защита от гигантских выводов. 0 = без лимита (осторожно с токенами при автоотправке).</div>
+    <div class="field">
+      <label class="title" for="maxOutputChars">Лимит вставки вывода в чат, символов</label>
+      <input type="number" id="maxOutputChars" min="0" max="1000000">
+      <div class="desc">Сколько символов результата вставлять в поле ввода. При обрезке в тексте есть пометка с лимитом.</div>
+    </div>
+    <div class="desc">Лимит на стороне сервера (по умолчанию 1 МБ): <code>python server.py --max-output 0</code></div>
+  </section>
+
+  <section class="card">
+    <h2>🔔 Уведомления</h2>
+    <div class="check"><input type="checkbox" id="showToasts">
+      <label for="showToasts"><b>Всплывающие тосты</b>
+      <span class="d">Короткие подсказки внизу экрана («найден execute-блок», «результат отправлен ИИ»…). Ошибки всё равно видны на панелях.</span></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📋 Промпт для ИИ</h2>
+    <div class="sub">Специальный промпт, обучающий ИИ писать execute-блоки. Вставь его первым сообщением в чат.</div>
+    <button id="copyPrompt" class="btn">📋 Скопировать промпт для ИИ</button>
+    <div class="desc" style="margin-top:8px">Расширенная версия («режим Codex») и разбор проблем — в файлах <code>SYSTEM_PROMPT.md</code> и <code>TROUBLESHOOTING.md</code>.</div>
+  </section>
+
+  <div class="toolbar">
+    <button id="save" class="btn primary">💾 Сохранить всё</button>
+    <button id="reset" class="btn danger">↩️ Сбросить к умолчанию</button>
+  </div>
+
+  <footer>AI Execute Runner · локальный инструмент: команды выполняются только на твоём ПК · <span id="ver2"></span></footer>
+</div>
+<script src="prompt.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

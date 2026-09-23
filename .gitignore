@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts (собирается командой zip, в репозиторий не коммитим)
+*.zip
