@@ -241,12 +241,13 @@
     const pushE = (v) => { if (v && typeof v === 'string') exact.push(v); };
     const pushF = (v) => { if (v && typeof v === 'string' && v.trim() && v.trim().length <= 80) fuzzy.push(v.trim()); };
 
-    // 1) классы language-* на code И на pre (разные рендеры кладут по-разному)
+    // 1) классы language-*/lang-* на code И на pre (разные рендеры кладут по-разному)
     for (const el of [code, pre]) {
       if (!el || !el.classList) continue;
       for (const c of el.classList) {
-        const m = String(c).match(/language-(.+)/i);
+        const m = String(c).match(/(?:language|lang)-(.+)/i);
         if (m) pushE(m[1]);
+        else if (/exec/i.test(c)) pushE(c); // голый токен "execute-python" без префикса тоже пробуем
       }
     }
     // 2) data-атрибуты на code/pre/родителях
@@ -255,12 +256,20 @@
       if (!el || !el.dataset) continue;
       pushE(el.dataset.language);
       pushE(el.dataset.lang);
+      // остальные data-* тоже (data-code-language, data-lang-name и т.п.)
+      try {
+        for (const v of Object.values(el.dataset)) {
+          if (typeof v === 'string' && v.length <= 60) pushE(v);
+        }
+      } catch {}
     }
-    // 2b) те же атрибуты напрямую (на случай нестандартного доступа)
+    // 2b) те же атрибуты напрямую + title/aria-label (язык иногда кладут туда)
     for (const el of [code, pre]) {
       if (!el || !el.getAttribute) continue;
       pushE(el.getAttribute('data-language'));
       pushE(el.getAttribute('data-lang'));
+      pushE(el.getAttribute('title'));
+      pushE(el.getAttribute('aria-label'));
     }
     // 3) подпись языка рядом: шапка код-блока с кнопкой копирования
     const container = pre.closest('div');
@@ -278,6 +287,13 @@
       if (sib.classList && sib.classList.contains('ax-exec-panel')) continue;
       pushF(sib.textContent);
     }
+    // 4b) шапка ВНУТРИ pre (первый элемент — не <code>, а рядом есть <code>):
+    // текст шапки — кандидат языка. Без <code> не смотрим (иначе первая строка
+    // построчного кода дала бы ложные срабатывания).
+    try {
+      const first = pre.firstElementChild;
+      if (code && first && first.tagName !== 'CODE' && first.textContent) pushF(first.textContent);
+    } catch {}
 
     // 5) точное совпадение
     for (const c of exact.concat(fuzzy)) {
@@ -345,6 +361,26 @@
       }
       node = node.parentElement;
     }
+    return null;
+  }
+
+  // Сниффер содержимого для ПРОСТЫХ execute-блоков (без суффикса языка):
+  // если код очевидно на python/powershell/node — выполняем в правильной среде,
+  // а не в shell (ИИ часто забывает суффикс, а сайты его отрезают).
+  // Смотрим ТОЛЬКО первую значимую строку: дальше уже рискованно
+  // (например shell-heredoc, создающий .py-файл, тоже содержит "import").
+  function sniffRunner(command) {
+    const lines = (command || '').split('\n');
+    let line = '';
+    for (const s of lines) {
+      const t = s.trim();
+      if (!t || /^(#|\/\/|rem\s|<\#)/i.test(t)) continue;
+      line = t; break;
+    }
+    if (!line) return null;
+    if (/^(import\s+[\w.]+(\s*,\s*[\w.]+)*\s*(;|$|#)|from\s+[\w.]+\s+import[\s(]|def\s+\w+\s*\(|print\s*\(|print\s+["'])/.test(line)) return 'python';
+    if (/^(console\.(log|error|warn)\s*\(|require\s*\(|const\s+\w+\s*=\s*require\s*\(|import\s+.+\s+from\s+["']|export\s+(default|const\b|let\b|var\b|function\b|class\b|async\b|\{))/.test(line)) return 'node';
+    if (/^((Get|Set|New|Remove|Start|Stop|Test|Write|Read|Import|Export|Invoke|Out|Select|Where|ForEach|Sort|Measure|Compare|Resolve|Split|Join|Clear|Copy|Move|Rename|Restart|Suspend|Update|Wait)-[A-Z]\w*)/.test(line)) return 'powershell';
     return null;
   }
 
@@ -1045,6 +1081,13 @@
       }
       if (!info) continue;
       const command = getCodeText(pre);
+      // Простой execute + очевидный код на другом языке → правильная среда
+      // (суффикс могли потерять ИИ или сайт). Явный суффикс и defaultRunner для
+      // нестрогих блоков — важнее, их не трогаем.
+      if (!weak && info.runner === 'shell') {
+        const sniffed = sniffRunner(command);
+        if (sniffed) info = { lang: info.lang, runner: sniffed };
+      }
       try {
         const panel = buildPanel(pre, info, command, { weak });
         // вставляем панель сразу после pre
