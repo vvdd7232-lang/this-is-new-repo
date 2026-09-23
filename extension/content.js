@@ -370,20 +370,42 @@
   // Сниффер содержимого для ПРОСТЫХ execute-блоков (без суффикса языка):
   // если код очевидно на python/powershell/node — выполняем в правильной среде,
   // а не в shell (ИИ часто забывает суффикс, а сайты его отрезают).
-  // Смотрим ТОЛЬКО первую значимую строку: дальше уже рискованно
-  // (например shell-heredoc, создающий .py-файл, тоже содержит "import").
+  // Смотрим ТОЛЬКО первую значимую строку (пропуская комментарии, в т.ч. блочные):
+  // дальше уже рискованно (например shell-heredoc, создающий .py-файл, тоже содержит "import").
   function sniffRunner(command) {
     const lines = (command || '').split('\n');
     let line = '';
+    let inBlock = null; // 'ps' (<#...#>) или 'c' (/*...*/)
     for (const s of lines) {
-      const t = s.trim();
-      if (!t || /^(#|\/\/|rem\s|<\#)/i.test(t)) continue;
+      let t = s.trim();
+      if (inBlock === 'ps') {
+        if (t.includes('#>')) inBlock = null;
+        continue;
+      }
+      if (inBlock === 'c') {
+        if (t.includes('*/')) inBlock = null;
+        continue;
+      }
+      if (!t) continue;
+      if (t.startsWith('<#')) {
+        const end = t.indexOf('#>', 2);
+        if (end === -1) { inBlock = 'ps'; continue; }
+        t = t.slice(end + 2).trim();
+        if (!t) continue;
+      }
+      if (t.startsWith('/*')) {
+        const end = t.indexOf('*/', 2);
+        if (end === -1) { inBlock = 'c'; continue; }
+        t = t.slice(end + 2).trim();
+        if (!t) continue;
+      }
+      if (/^(#|\/\/|rem\s)/i.test(t)) continue;
       line = t; break;
     }
     if (!line) return null;
-    if (/^(import\s+[\w.]+(\s*,\s*[\w.]+)*\s*(;|$|#)|from\s+[\w.]+\s+import[\s(]|def\s+\w+\s*\(|print\s*\(|print\s+["'])/.test(line)) return 'python';
-    if (/^(console\.(log|error|warn)\s*\(|require\s*\(|const\s+\w+\s*=\s*require\s*\(|import\s+.+\s+from\s+["']|export\s+(default|const\b|let\b|var\b|function\b|class\b|async\b|\{))/.test(line)) return 'node';
-    if (/^((Get|Set|New|Remove|Start|Stop|Test|Write|Read|Import|Export|Invoke|Out|Select|Where|ForEach|Sort|Measure|Compare|Resolve|Split|Join|Clear|Copy|Move|Rename|Restart|Suspend|Update|Wait)-[A-Z]\w*)/.test(line)) return 'powershell';
+    if (/^(import\s+[\w.]+(\s*,\s*[\w.]+)*\s*(;|$|#)|from\s+[\w.]+\s+import[\s(]|def\s+\w+\s*\(|print\s*\(|print\s+["']|class\s+\w+(\([^)]*\))?\s*:(?!\s*\w+\s*\{)|@\w[\w.]*)/.test(line)) return 'python';
+    if (/^(console\.(log|error|warn)\s*\(|require\s*\(|const\s+\w+\s*=\s*require\s*\(|import\s+.+\s+from\s+["']|export\s+(default|const\b|let\b|var\b|function\b|class\b|async\b|\{)|async\s+function\b)/.test(line)) return 'node';
+    if (/^((Get|Set|New|Remove|Start|Stop|Test|Write|Read|Import|Export|Invoke|Out|Select|Where|ForEach|Sort|Measure|Compare|Resolve|Split|Join|Clear|Copy|Move|Rename|Restart|Suspend|Update|Wait|Add|Format|ConvertTo|ConvertFrom|Group|Tee|Unblock|Compress|Expand|Push|Pop)-[A-Z]\w*|param\s*\(|function\s+[A-Za-z]+-|class\s+\w+(\s*:\s*\w+)?\s*\{|\$[A-Za-z_]\w*\s*=)/.test(line)) return 'powershell';
     return null;
   }
 
@@ -438,7 +460,20 @@
   try {
     chrome.storage.local.get([RUNNER_MEM_KEY], (d) => {
       const o = d && d[RUNNER_MEM_KEY];
-      if (o) for (const [k, v] of Object.entries(o)) { const r = runnerValid(v); if (r) runnerMemory.set(k, r); }
+      let pruned = false;
+      if (o) for (const [k, v] of Object.entries(o)) {
+        const r = runnerValid(v);
+        if (!r) continue;
+        // Чистим отравленные записи: shell для кода, который сниффер уверенно опознаёт
+        // (записались авто-подтверждениями при сломанном детекте, а не выбором пользователя)
+        if (r === 'shell') {
+          try { if (sniffRunner(k)) { pruned = true; continue; } } catch {}
+        }
+        runnerMemory.set(k, r);
+      }
+      if (pruned) {
+        try { chrome.storage.local.set({ [RUNNER_MEM_KEY]: Object.fromEntries(runnerMemory) }); } catch {}
+      }
     });
   } catch {}
 
@@ -824,13 +859,14 @@
       let runRunner = maybeResniff(cmd);
       const mySeq = ++axSeq;
       if (!isAuto && settings.requireConfirm) {
+        const beforeModal = panelRunner();
         const res = await confirmModal({ lang: info.lang, runner: runRunner, command: cmd });
         if (!res || !res.ok) { fin(); return; }
         runRunner = res.runner || runRunner;
-        try {
-          runnerSelect.value = runRunner;
-          memSet(cmd, runRunner);
-        } catch {}
+        // В память пишем ТОЛЬКО явную смену среды (иначе авто-подтверждения
+        // цементируют устаревший детект и переживают его исправления)
+        if (runRunner !== beforeModal) { try { memSet(cmd, runRunner); } catch {} }
+        try { runnerSelect.value = runRunner; } catch {}
       }
       stopAutoTimer();
       btnRun.disabled = true;
