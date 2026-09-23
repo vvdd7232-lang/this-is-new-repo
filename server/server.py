@@ -20,6 +20,7 @@ import time
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+VERSION = '2.3.1'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 VERBOSE = False  # True => логировать вообще всё, включая /ping
@@ -101,10 +102,13 @@ def _clip(text):
 
 
 def execute(payload):
-    command = (payload.get('command') or '').strip()
-    runner = (payload.get('runner') or 'shell').strip().lower()
+    command = payload.get('command') or ''
+    if not isinstance(command, str):
+        return {'ok': False, 'executed': False, 'error': 'command must be a string'}
+    command = command.strip()
+    runner = str(payload.get('runner') or 'shell').strip().lower()
     timeout = payload.get('timeout') or DEFAULT_TIMEOUT
-    cwd = os.path.expanduser(payload.get('cwd') or '') or None
+    cwd = os.path.expanduser(str(payload.get('cwd') or '')) or None
     try:
         timeout = max(2, min(int(timeout), 600))
     except (ValueError, TypeError):
@@ -114,6 +118,8 @@ def execute(payload):
         return {'ok': False, 'executed': False, 'error': 'empty command'}
     if cwd and not os.path.isdir(cwd):
         return {'ok': False, 'executed': False, 'error': f'cwd not found: {cwd}'}
+    if runner not in ('shell', 'python', 'node', 'powershell'):
+        return {'ok': False, 'executed': False, 'error': f'unknown runner: {runner}'}
     t0 = time.monotonic()  # замер длительности выполнения
 
     print(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}', flush=True)
@@ -142,13 +148,16 @@ def execute(payload):
                 p = subprocess.run(['powershell', '-NoProfile', '-NonInteractive',
                                     '-ExecutionPolicy', 'Bypass', '-File', ps_path],
                                    capture_output=True, timeout=timeout, cwd=cwd or None)
+            except FileNotFoundError:
+                # Linux/macOS: PowerShell Core ставится как `pwsh`
+                p = subprocess.run(['pwsh', '-NoProfile', '-NonInteractive',
+                                    '-ExecutionPolicy', 'Bypass', '-File', ps_path],
+                                   capture_output=True, timeout=timeout, cwd=cwd or None)
             finally:
                 try:
                     os.unlink(ps_path)
                 except OSError:
                     pass
-        else:
-            return {'ok': False, 'executed': False, 'error': f'unknown runner: {runner}'}
     except subprocess.TimeoutExpired as e:
         out = smart_decode(e.stdout)
         err = smart_decode(e.stderr)
@@ -163,6 +172,8 @@ def execute(payload):
                 'limit_bytes': MAX_OUTPUT, 'duration_ms': int((time.monotonic() - t0) * 1000), 'timed_out': True}
     except FileNotFoundError as e:
         return {'ok': False, 'executed': False, 'error': f'interpreter not found: {e}'}
+    except OSError as e:
+        return {'ok': False, 'executed': False, 'error': f'execution failed: {e}'}
 
     raw_out, raw_err = p.stdout or b'', p.stderr or b''
     stdout, stderr = smart_decode(raw_out), smart_decode(raw_err)
@@ -175,10 +186,10 @@ def execute(payload):
             'executed': True, 'cwd': eff_cwd,
             'stdout': clipped_out, 'stderr': clipped_err, 'truncated': (t1 or t2),
             'stdout_bytes': len(raw_out), 'stderr_bytes': len(raw_err), 'limit_bytes': MAX_OUTPUT,
-            'duration_ms': dur_ms}
+            'duration_ms': dur_ms, 'timed_out': False}
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'AIExecuteRunner/1.0'
+    server_version = 'AIExecuteRunner/' + VERSION
 
     def _allowed(self):
         # Защита от DNS-rebinding и чужих сайтов:
@@ -227,8 +238,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
         req_path = urlparse(self.path).path
-        if req_path.rstrip('/').endswith('/ping') or req_path == '/':
-            self._json({'status': 'ok', 'platform': platform.system(),
+        if req_path.rstrip('/') in ('/ping', ''):
+            self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
                         'cwd': os.getcwd(), 'python': sys.version.split()[0]})
         else:
             self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
@@ -236,11 +247,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
-        if not urlparse(self.path).path.rstrip('/').endswith('/run'):
+        if urlparse(self.path).path.rstrip('/') != '/run':
             return self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
         try:
             length = int(self.headers.get('Content-Length', 0))
         except ValueError:
+            length = 0
+        if length < 0:
             length = 0
         if length > 10_000_000:
             return self._json({'ok': False, 'error': 'body too large (max 10MB)'}, 413)
@@ -256,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         try:
             payload = json.loads(raw.decode('utf-8') or '{}')
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
             return self._json({'ok': False, 'error': 'invalid JSON'}, 400)
         if not isinstance(payload, dict):
             return self._json({'ok': False, 'error': 'JSON body must be an object'}, 400)
@@ -308,10 +321,11 @@ def main():
     # Стартовый cwd: запуск из системной папки (System32 через ярлык/автозапуск)
     # ломает все относительные пути — в этом случае уходим в домашнюю папку.
     if args.cwd:
-        if not os.path.isdir(args.cwd):
+        cwd_arg = os.path.expanduser(args.cwd)
+        if not os.path.isdir(cwd_arg):
             print(f'ошибка: папка --cwd не найдена: {args.cwd}')
             sys.exit(1)
-        os.chdir(args.cwd)
+        os.chdir(cwd_arg)
     elif os.name == 'nt' and os.path.basename(os.getcwd()).lower() in ('system32', 'syswow64', 'windows'):
         home = os.path.expanduser('~')
         print(f'  [!] стартовый каталог {os.getcwd()} — системный, перехожу в {home}')
@@ -323,7 +337,7 @@ def main():
         sys.exit(1)
     _prt = __import__('functools').partial(print, flush=True)
     _prt('=' * 60)
-    _prt('  AI Execute Runner — локальный сервер запущен')
+    _prt(f'  AI Execute Runner v{VERSION} — локальный сервер запущен')
     _prt(f'  http://127.0.0.1:{args.port}  (только этот ПК, platform={platform.system()})')
     _prt('  Откройте ChatGPT / Claude / Arena, ИИ пишет ```execute — подтверждайте запуск.')
     _prt(f'  Лимит вывода: {MAX_OUTPUT} байт (0 = без лимита)')

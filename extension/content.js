@@ -100,6 +100,7 @@
     return t ? Math.max(1, Math.round((now - t) / 1000)) : 0;
   }
   function markAutoRun(cmd, runner) {
+    recentAutoRuns.delete(autoRunKey(cmd, runner));
     recentAutoRuns.set(autoRunKey(cmd, runner), Date.now());
     while (recentAutoRuns.size > 200) recentAutoRuns.delete(recentAutoRuns.keys().next().value);
   }
@@ -110,13 +111,14 @@
   function loadExecHistory(o) {
     execHistory.clear();
     if (o) for (const [k, v] of Object.entries(o)) {
-      if (v && typeof v.t === 'number') execHistory.set(k, { t: v.t, s: v.s || '' });
+      if (v && typeof v.t === 'number') execHistory.set(k, { t: v.t, s: typeof v.s === 'string' ? v.s : '' });
     }
   }
   function saveExecHistory() {
     try { chrome.storage.local.set({ [EXEC_HIST_KEY]: Object.fromEntries(execHistory) }); } catch {}
   }
   function markExecuted(cmd, runner) {
+    execHistory.delete(autoRunKey(cmd, runner));
     execHistory.set(autoRunKey(cmd, runner), { t: Date.now(), s: AX_SESSION });
     while (execHistory.size > 200) execHistory.delete(execHistory.keys().next().value);
     saveExecHistory();
@@ -129,7 +131,8 @@
   function fmtAge(sec) {
     if (sec < 120) return sec + 'с';
     if (sec < 7200) return Math.round(sec / 60) + 'м';
-    return Math.round(sec / 3600) + 'ч';
+    if (sec < 172800) return Math.round(sec / 3600) + 'ч';
+    return Math.round(sec / 86400) + 'д';
   }
   try { chrome.storage.local.get([EXEC_HIST_KEY], (d) => loadExecHistory(d && d[EXEC_HIST_KEY])); } catch {}
   const livePanels = [];         // { started, done, start(), finish() }
@@ -352,7 +355,7 @@
               return { runner, strong: true };
             }
             if (t.length <= 120 && /\b(execut(e|ion)?|exec)\b/i.test(t)) {
-              return { runner: settings.defaultRunner || 'shell', strong: false };
+              return { runner: runnerValid(settings.defaultRunner) || 'shell', strong: false };
             }
           }
         }
@@ -427,6 +430,7 @@
   function memSet(code, runner) {
     runner = runnerValid(runner);
     if (!runner || !memKey(code)) return;
+    runnerMemory.delete(memKey(code));
     runnerMemory.set(memKey(code), runner);
     while (runnerMemory.size > 100) runnerMemory.delete(runnerMemory.keys().next().value);
     try { chrome.storage.local.set({ [RUNNER_MEM_KEY]: Object.fromEntries(runnerMemory) }); } catch {}
@@ -603,19 +607,19 @@
   function waitForSettle(pre, cb) {
     let last = '';
     try { last = getCodeText(pre); } catch {}
-    let stable = 0, waited = 0, goneStreak = 0;
+    const t0 = Date.now();
+    let lastChange = t0, goneSince = 0;
     const iv = setInterval(() => {
-      waited += 500;
+      const now = Date.now();
       // Блок выкинули из DOM (чат перерисовал): новый panel разберётся сам, этот пропускаем
       if (pre && !pre.isConnected) {
-        goneStreak += 500;
-        if (goneStreak >= 1500) { clearInterval(iv); cb(''); return; }
-      } else goneStreak = 0;
+        if (!goneSince) goneSince = now;
+        if (now - goneSince >= 1500) { clearInterval(iv); cb(''); return; }
+      } else goneSince = 0;
       let cur = '';
       try { cur = getCodeText(pre); } catch {}
-      if (cur === last) stable += 500;
-      else { stable = 0; last = cur; }
-      if (stable >= 2500 || waited >= 120000) { clearInterval(iv); cb(last); }
+      if (cur !== last) { last = cur; lastChange = now; }
+      if (now - lastChange >= 2500 || now - t0 >= 120000) { clearInterval(iv); cb(last); }
     }, 500);
     return () => clearInterval(iv);
   }
@@ -722,7 +726,7 @@
   } catch {}
 
   // Общие тексты статусов автопилота (чтобы не дублировать строки)
-  const MSG_WEAK_AUTO_OFF = '🔍 EXECUTE?: автозапуск для таких блоков выключен — жми ▶ вручную (или включи «Автозапуск EXECUTE?» в настройках).';
+  const MSG_WEAK_AUTO_OFF = '🔍 EXECUTE?: автозапуск для таких блоков выключен — жми ▶ вручную (или включи «Автозапуск блоков EXECUTE?» в настройках).';
   const MSG_LOOP_OFF = '🛑 Автопилот остановлен (зацикливание) — дальше вручную.';
 
   // ---------- Панель под блоком ----------
@@ -774,6 +778,18 @@
       try { return (runnerSelect && runnerSelect.value) || info.runner; }
       catch { return info.runner; }
     }
+    // Повторный сниффер на полном тексте (на момент создания панели блок мог стримиться).
+    // Трогаем только нетронутый shell: без явного суффикса, без запомненного выбора,
+    // селект пользователем не менялся (смена пишет в память через onchange).
+    function maybeResniff(cmd) {
+      try {
+        if (runnerSelect.value === 'shell' && info.runner === 'shell' && !memGet(cmd)) {
+          const sn = sniffRunner(cmd);
+          if (sn) runnerSelect.value = sn;
+        }
+      } catch {}
+      return panelRunner();
+    }
     panel.querySelector('.ax-exec-cmd-preview').textContent = previewText(command);
 
     const btnRun = panel.querySelector('.ax-btn-run');
@@ -805,7 +821,7 @@
       const cmd = ((cmdOverride != null ? cmdOverride : getCodeText(pre)) || '').trim();
       if (!cmd) { toast('Пустая команда'); fin(); return; }
       refreshPreview(cmd);
-      let runRunner = panelRunner();
+      let runRunner = maybeResniff(cmd);
       const mySeq = ++axSeq;
       if (!isAuto && settings.requireConfirm) {
         const res = await confirmModal({ lang: info.lang, runner: runRunner, command: cmd });
@@ -832,11 +848,16 @@
         (resp) => {
           btnRun.disabled = false;
           btnRun.textContent = '▶ Выполнить';
-          if (!resp) { status.className = 'ax-exec-status ax-err'; status.textContent = '❌ Нет ответа от расширения.'; fin(); return; }
+          if (!resp) {
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + cmd + '\nнет ответа от расширения\n');
+            status.className = 'ax-exec-status ax-err'; status.textContent = '❌ Нет ответа от расширения.'; fin(); return;
+          }
           if (!resp.ok) {
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + cmd + '\n' + resp.error + '\n');
+            const looksConn = /fetch|abort|network|ожидания|ECONN|Failed/i.test(resp.error || '');
             status.className = 'ax-exec-status ax-err';
-            status.textContent = '❌ Ошибка: ' + resp.error + ' — запущен ли локальный сервер (server.py)?';
-            toast('Сервер недоступен. Запустите server.py');
+            status.textContent = '❌ Ошибка: ' + resp.error + (looksConn ? ' — запущен ли server.py?' : '');
+            toast('❌ ' + resp.error);
             fin();
             return;
           }
@@ -918,6 +939,10 @@
 
     function runAutoNow(onDone) {
       const finQ = () => { try { onDone && onDone(); } catch {} };
+      // Разовый пропуск проверок гасим СРАЗУ (иначе ранний выход оставлял его взведённым
+      // для следующего запуска этой панели).
+      const bypassChecks = forceAutoOnce;
+      forceAutoOnce = false;
       if (autoCancelled || autoHandle.done) { finQ(); return; }
       if (!settings.autoExecute) {
         noteToChat('\n[LOCAL EXEC] status=skipped reason=auto-disabled (выключено в настройках)\n');
@@ -953,6 +978,7 @@
         if (autoCancelled) { finQ(); return; }
         const cmd = (settled || '').trim();
         if (!cmd) { stopAutoTimer('Пустая команда — пропуск.'); finQ(); return; }
+        maybeResniff(cmd);
         if (isDangerous(cmd)) {
           noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + cmd + '\n');
           stopAutoTimer();
@@ -966,20 +992,19 @@
           stopAutoTimer('⏭ Дубль: такая команда уже выполнялась ' + dup + 'с назад — пропуск (жми ▶ для повтора).');
           finQ(); return;
         }
-        if (!forceAutoOnce) {
+        if (!bypassChecks) {
           const hist = historyAge(cmd, panelRunner());
           if (hist > 0) {
-            noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + fmtAge(hist) + '\n$ ' + cmd + '\n');
+            noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + cmd + '\n');
             stopAutoTimer('⏭ Уже выполнялась раньше (' + fmtAge(hist) + ' назад) — пропуск (жми ▶ для повтора).');
             finQ(); return;
           }
-          if (Date.now() - AX_BOOT < BOOT_GRACE_MS && createdCmd && cmd === createdCmd) {
+          if (!flags.forced && Date.now() - AX_BOOT < BOOT_GRACE_MS && createdCmd && cmd === createdCmd) {
             noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + cmd + '\n');
             stopAutoTimer('⏭ Блок уже был на странице при загрузке — автозапуск пропущен (жми ▶).');
             finQ(); return;
           }
         }
-        forceAutoOnce = false;
         refreshPreview(cmd);
         lastAutoCommands.push(cmd);
         if (lastAutoCommands.length > 5) lastAutoCommands.shift();
@@ -992,8 +1017,11 @@
         }
         const d = +settings.autoDelay;
         const left0 = (Number.isFinite(d) ? Math.max(0, Math.min(30, d)) : 3);
-        let left = left0;
-        const tick = () => { status.textContent = '🤖 Автозапуск через ' + left + 'с… (✋ Отмена авто — остановить)'; };
+        const fireAt = Date.now() + left0 * 1000; // часы, а не счётчик: в фоновой вкладке таймеры тормозятся
+        const tick = () => {
+          const rem = Math.max(0, Math.ceil((fireAt - Date.now()) / 1000));
+          status.textContent = '🤖 Автозапуск через ' + rem + 'с… (✋ Отмена авто — остановить)';
+        };
         const fire = () => {
           autoRunCount++;
           markAutoRun(cmd, panelRunner());
@@ -1001,12 +1029,11 @@
           if (cb) cb.remove();
           doRun(cmd, true, finQ);
         };
-        if (left <= 0) { fire(); return; }
+        if (left0 <= 0) { fire(); return; }
         tick();
         autoTimer = setInterval(() => {
           if (autoCancelled) { if (autoTimer) clearInterval(autoTimer); autoTimer = null; finQ(); return; }
-          left--;
-          if (left <= 0) { if (autoTimer) clearInterval(autoTimer); autoTimer = null; fire(); }
+          if (Date.now() >= fireAt) { if (autoTimer) clearInterval(autoTimer); autoTimer = null; fire(); }
           else tick();
         }, 1000);
         } catch (e) { console.warn('[AX] auto:', e); stopAutoTimer('Ошибка автозапуска — жми ▶ вручную.'); finQ(); }
@@ -1063,6 +1090,10 @@
 
   function scan(root = document, force = false) {
     const pres = root.querySelectorAll ? root.querySelectorAll('pre') : [];
+    // Чистим livePanels от удалённых из DOM (иначе висят мёртвые ссылки + растёт массив)
+    for (let i = livePanels.length - 1; i >= 0; i--) {
+      if (livePanels[i].el && !livePanels[i].el.isConnected) livePanels.splice(i, 1);
+    }
     const now = Date.now();
     for (const pre of pres) {
       if (pre.dataset.axDone) continue; // панель уже добавлена
@@ -1089,7 +1120,7 @@
         if (sniffed) info = { lang: info.lang, runner: sniffed };
       }
       try {
-        const panel = buildPanel(pre, info, command, { weak });
+        const panel = buildPanel(pre, info, command, { weak, forced: force });
         // вставляем панель сразу после pre
         pre.insertAdjacentElement('afterend', panel);
         pre.dataset.axDone = '1';
@@ -1145,6 +1176,7 @@
   }
 
   let pingFails = 0; // подряд идущие провалы пинга (единичный пропуск бейдж не гасит)
+  let oldSrvWarned = false; // тост про старый server.py — раз за загрузку
   function checkServer() {
     if (document.hidden) return; // фоновые вкладки сервер не дёргают
     if (!document.getElementById('ax-server-dot')) { try { ensureDot(); } catch {} }
@@ -1158,6 +1190,10 @@
         d.className = 'ax-online';
         d.textContent = '⚡ exec: online';
         d.title = 'Сервер на связи: ' + JSON.stringify(resp.info);
+        if (resp.info && !resp.info.version && !oldSrvWarned) {
+          oldSrvWarned = true;
+          toast('⚠️ server.py старый (не сообщает версию) — обнови файл, иначе часть функций не будет работать');
+        }
       } else {
         pingFails++;
         if (pingFails < 2) return; // единичный пропуск (сервер занят командой) — не мигаем

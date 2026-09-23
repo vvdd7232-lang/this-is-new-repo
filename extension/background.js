@@ -23,11 +23,18 @@ async function getSettings() {
   return { ...DEFAULTS, ...stored };
 }
 
+// Нормализация адреса сервера: без схемы добавляем http://, режем хвостовые слеши.
+function normUrl(u) {
+  u = (u || '').trim().replace(/\/+$/, '');
+  if (u && !/^[a-z]+:\/\//i.test(u)) u = 'http://' + u;
+  return u || DEFAULTS.serverUrl;
+}
+
 async function pingServer(serverUrl) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000);
   try {
-    const res = await fetch(serverUrl.replace(/\/$/, '') + '/ping', { signal: ctrl.signal });
+    const res = await fetch(normUrl(serverUrl) + '/ping', { signal: ctrl.signal });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
   } finally {
@@ -37,7 +44,7 @@ async function pingServer(serverUrl) {
 
 async function runCommand({ command, runner, timeout, cwd }) {
   const s = await getSettings();
-  const base = (s.serverUrl || DEFAULTS.serverUrl).replace(/\/$/, '');
+  const base = normUrl(s.serverUrl);
   const ctrl = new AbortController();
   // таймаут запроса = таймаут команды + 8 сек запаса
   const t = setTimeout(() => ctrl.abort(), ((timeout || s.timeout || 30) + 8) * 1000);
