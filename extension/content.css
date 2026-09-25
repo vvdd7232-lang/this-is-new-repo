@@ -169,3 +169,29 @@
 }
 #ax-server-dot.ax-online { background: #16a34a; }
 #ax-server-dot.ax-offline { background: #dc2626; }
+
+@media (prefers-color-scheme: dark) {
+  .ax-modal {
+    background: #1f2937;
+    color: #f3f4f6;
+  }
+  .ax-modal-select {
+    background: #374151;
+    color: #f3f4f6;
+    border-color: #4b5563;
+  }
+  .ax-btn-cancel {
+    background: #374151;
+    color: #f3f4f6;
+  }
+}
+.ax-runner-select option {
+  background: #fff;
+  color: #111;
+}
+@media (prefers-color-scheme: dark) {
+  .ax-runner-select option {
+    background: #1f2937;
+    color: #f3f4f6;
+  }
+}

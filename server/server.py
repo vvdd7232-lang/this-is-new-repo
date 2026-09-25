@@ -20,7 +20,7 @@ import time
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.3.1'
+VERSION = '2.4.1'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 VERBOSE = False  # True => логировать вообще всё, включая /ping
@@ -108,7 +108,8 @@ def execute(payload):
     command = command.strip()
     runner = str(payload.get('runner') or 'shell').strip().lower()
     timeout = payload.get('timeout') or DEFAULT_TIMEOUT
-    cwd = os.path.expanduser(str(payload.get('cwd') or '')) or None
+    cwd_raw = str(payload.get('cwd') or '').strip()
+    cwd = os.path.expanduser(cwd_raw) if cwd_raw else None
     try:
         timeout = max(2, min(int(timeout), 600))
     except (ValueError, TypeError):
@@ -161,7 +162,7 @@ def execute(payload):
     except subprocess.TimeoutExpired as e:
         out = smart_decode(e.stdout)
         err = smart_decode(e.stderr)
-        tout_err = err + f'\n[TIMEOUT {timeout}s]'
+        tout_err = (err + '\n' if err else '') + f'[TIMEOUT {timeout}s]'
         clipped_out, _ = _clip(out)
         clipped_err, _ = _clip(tout_err)
         return {'ok': True, 'runner': runner, 'command': command, 'exit_code': 124,
@@ -196,14 +197,14 @@ class Handler(BaseHTTPRequestHandler):
         # Host обязан быть локальным, Origin — пустым (curl/навигация),
         # chrome-extension:// (наше расширение) или локальным.
         host = (self.headers.get('Host') or '').split(':')[0].strip().lower()
-        if host not in ('127.0.0.1', 'localhost'):
+        if host not in ('127.0.0.1', 'localhost', '[::1]', '::1'):
             return False
         origin = (self.headers.get('Origin') or '').strip()
         if not origin:
             return True
         try:
             o = urlparse(origin)
-            if o.scheme == 'chrome-extension':
+            if o.scheme in ('chrome-extension', 'moz-extension'):
                 return True
             if o.hostname in ('127.0.0.1', 'localhost'):
                 return True
@@ -321,7 +322,7 @@ def main():
     # Стартовый cwd: запуск из системной папки (System32 через ярлык/автозапуск)
     # ломает все относительные пути — в этом случае уходим в домашнюю папку.
     if args.cwd:
-        cwd_arg = os.path.expanduser(args.cwd)
+        cwd_arg = os.path.expanduser(args.cwd.strip('"\''))
         if not os.path.isdir(cwd_arg):
             print(f'ошибка: папка --cwd не найдена: {args.cwd}')
             sys.exit(1)

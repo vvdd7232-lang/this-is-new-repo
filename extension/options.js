@@ -119,8 +119,23 @@ async function testConnection() {
 
 async function copyPrompt() {
   try {
-    await navigator.clipboard.writeText(AX_PROMPT);
-    statusMsg('📋 Промпт для ИИ скопирован — вставь его первым сообщением в чат', 'ok');
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(AX_PROMPT);
+      ok = true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = AX_PROMPT;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    }
+    if (ok) statusMsg('📋 Промпт для ИИ скопирован — вставь его первым сообщением в чат', 'ok');
+    else statusMsg('Не удалось скопировать. Промпт лежит в файле SYSTEM_PROMPT.md', 'err');
   } catch {
     statusMsg('Не удалось скопировать. Промпт лежит в файле SYSTEM_PROMPT.md', 'err');
   }
@@ -145,3 +160,9 @@ $('autoSend').onchange = () => { if ($('autoSend').checked) $('autoInsert').chec
 $('autoInsert').onchange = () => { if (!$('autoInsert').checked) $('autoSend').checked = false; };
 
 load();
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') {
+    save();
+  }
+});

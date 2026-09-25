@@ -8,6 +8,10 @@
 (() => {
   'use strict';
 
+  if (window.__axLoaded && window.__axAlive && window.__axAlive()) return;
+  window.__axLoaded = true;
+  window.__axAlive = () => ctxAlive();
+
   /* ----- Защита от "Extension context invalidated" -----
    * После перезагрузки расширения старый content-script продолжает висеть
    * на открытых вкладках (таймеры, observer), но chrome.* уже мёртв.
@@ -53,7 +57,7 @@
         dot.ondblclick = null;
       }
     } catch {}
-    try { toast('⚡ Расширение обновлено — обнови вкладку (F5)'); } catch {}
+    try { toast('⚡ Расширение обновлено — обнови вкладку (F5)', 3000, true); } catch {}
   }
 
   // Языки блоков, которые считаем исполняемыми.
@@ -214,6 +218,10 @@
     }
     if (area !== 'sync') return;
     for (const [k, v] of Object.entries(changes)) settings[k] = v.newValue;
+    if (changes.autoExecute && changes.autoExecute.newValue === true) {
+      loopBlocked = false;
+      lastAutoCommands = [];
+    }
     if ((changes.autoExecute && changes.autoExecute.newValue === true) ||
         (changes.autoWeak && changes.autoWeak.newValue === true) ||
         (changes.maxAutoRuns && (changes.maxAutoRuns.newValue || 0) !== (changes.maxAutoRuns.oldValue || 0))) applyAutoToPending();
@@ -222,8 +230,8 @@
 
   // ---------- Утилиты ----------
 
-  function toast(text, ms = 2200) {
-    if (settings && settings.showToasts === false) return;
+  function toast(text, ms = 2200, force = false) {
+    if (!force && settings && settings.showToasts === false) return;
     let el = document.querySelector('.ax-toast');
     if (!el) { el = document.createElement('div'); el.className = 'ax-toast'; document.body.appendChild(el); }
     el.textContent = text;
@@ -317,11 +325,18 @@
         return { lang: 'execute', runner };
       }
     }
-    // 5) fallback: первая строка кода вида "#!execute" или "// execute"
+    // 5) fallback: первая строка кода вида "#!execute" или "// execute" (с суффиксом или без)
     if (code) {
-      const first = (code.innerText || '').split('\n')[0].trim().toLowerCase();
-      if (first === '#!execute' || first === '// execute' || first === '# execute')
-        return { lang: 'execute', runner: 'shell' };
+      const first = ((code.innerText != null ? code.innerText : code.textContent) || '').split('\n')[0].trim().toLowerCase();
+      const m = first.match(/^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(execut(?:e|ion)?|exec)(?:[-:](python|js|node|pwsh|powershell))?$/i);
+      if (m) {
+        let runner = 'shell';
+        const suf = (m[2] || '').toLowerCase();
+        if (/python/.test(suf)) runner = 'python';
+        else if (/node|js/.test(suf)) runner = 'node';
+        else if (/pwsh|powershell/.test(suf)) runner = 'powershell';
+        return { lang: 'execute', runner };
+      }
     }
     return null;
   }
@@ -379,12 +394,18 @@
     for (const s of lines) {
       let t = s.trim();
       if (inBlock === 'ps') {
-        if (t.includes('#>')) inBlock = null;
-        continue;
+        const end = t.indexOf('#>');
+        if (end === -1) continue;
+        inBlock = null;
+        t = t.slice(end + 2).trim();
+        if (!t) continue;
       }
       if (inBlock === 'c') {
-        if (t.includes('*/')) inBlock = null;
-        continue;
+        const end = t.indexOf('*/');
+        if (end === -1) continue;
+        inBlock = null;
+        t = t.slice(end + 2).trim();
+        if (!t) continue;
       }
       if (!t) continue;
       if (t.startsWith('<#')) {
@@ -403,18 +424,18 @@
       line = t; break;
     }
     if (!line) return null;
-    if (/^(import\s+[\w.]+(\s*,\s*[\w.]+)*\s*(;|$|#)|from\s+[\w.]+\s+import[\s(]|def\s+\w+\s*\(|print\s*\(|print\s+["']|class\s+\w+(\([^)]*\))?\s*:(?!\s*\w+\s*\{)|@\w[\w.]*)/.test(line)) return 'python';
-    if (/^(console\.(log|error|warn)\s*\(|require\s*\(|const\s+\w+\s*=\s*require\s*\(|import\s+.+\s+from\s+["']|export\s+(default|const\b|let\b|var\b|function\b|class\b|async\b|\{)|async\s+function\b)/.test(line)) return 'node';
-    if (/^((Get|Set|New|Remove|Start|Stop|Test|Write|Read|Import|Export|Invoke|Out|Select|Where|ForEach|Sort|Measure|Compare|Resolve|Split|Join|Clear|Copy|Move|Rename|Restart|Suspend|Update|Wait|Add|Format|ConvertTo|ConvertFrom|Group|Tee|Unblock|Compress|Expand|Push|Pop)-[A-Z]\w*|param\s*\(|function\s+[A-Za-z]+-|class\s+\w+(\s*:\s*\w+)?\s*\{|\$[A-Za-z_]\w*\s*=)/.test(line)) return 'powershell';
+    if (/^(import\s+[\w.]+(\s*,\s*[\w.]+)*\s*(;|$|#)|from\s+[\w.]+\s+import[\s(]|(async\s+)?def\s+\w+\s*\(|print\s*\(|print\s+["']|class\s+\w+(\([^)]*\))?\s*:(?!\s*\w+\s*\{)|@\w[\w.]*|if\s+__name__\s*==)/.test(line)) return 'python';
+    if (/^(console\.(log|error|warn)\s*\(|require\s*\(|(const|let|var)\s+[\w\s{},:*]+\s*=\s*require\s*\(|import\s+.+\s+from\s+["']|export\s+(default|const\b|let\b|var\b|function\b|class\b|async\b|\{)|async\s+function\b)/.test(line)) return 'node';
+    if (/^((Get|Set|New|Remove|Start|Stop|Test|Write|Read|Import|Export|Invoke|Out|Select|Where|ForEach|Sort|Measure|Compare|Resolve|Split|Join|Clear|Copy|Move|Rename|Restart|Suspend|Update|Wait|Add|Format|ConvertTo|ConvertFrom|Group|Tee|Unblock|Compress|Expand|Push|Pop)-[A-Z]\w*|param\s*\(|function\s+[A-Za-z]+-|class\s+\w+(\s*:\s*\w+)?\s*\{|\$[A-Za-z_][\w:]*\s*=|\$PSVersionTable\b|\[[A-Za-z_][\w.]*\]::)/.test(line)) return 'powershell';
     return null;
   }
 
   function getCodeText(pre) {
     const code = pre.querySelector('code');
-    const raw = (code ? code.innerText : pre.innerText) || '';
+    const raw = (code ? (code.innerText != null ? code.innerText : code.textContent) : (pre.innerText != null ? pre.innerText : pre.textContent)) || '';
     // убираем маркер первой строки, если он использовался как fallback
     const lines = raw.replace(/\r\n/g, '\n').split('\n');
-    if (lines.length && ['#!execute', '// execute', '# execute'].includes(lines[0].trim().toLowerCase()))
+    if (lines.length && /^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(?:execut(?:e|ion)?|exec)(?:[-:][a-z0-9_-]+)?$/i.test(lines[0].trim()))
       lines.shift();
     return lines.join('\n').replace(/\n+$/, '');
   }
@@ -535,7 +556,8 @@
       (clipIns ? ' insert_truncated=yes shown_chars=' + out.length + '/' + so.length : '') +
       '\n$ ' + command + '\n';
     if (out) txt += '--- stdout ---\n' + out + (max > 0 && so.length > max ? '\n…(обрезано вставкой: лимит ' + max + ' симв.)' : '') + '\n';
-    if (err) txt += '--- stderr ---\n' + err + '\n';
+    const clipErr = max > 0 && se.length > Math.floor(max / 2);
+    if (err) txt += '--- stderr ---\n' + err + (clipErr ? '\n…(обрезано вставкой: лимит ' + Math.floor(max / 2) + ' симв.)' : '') + '\n';
     if (!out && !err) txt += '(пустой вывод)\n';
     if (truncated) txt += timedOut
       ? '(команда убита по таймауту — вывод частичный, см. [TIMEOUT] в stderr)\n'
@@ -570,7 +592,7 @@
       for (const el of document.querySelectorAll(sel)) {
         if (seen.has(el)) continue;
         seen.add(el);
-        if (isVisibleEl(el) && !el.disabled && !el.readOnly) candidates.push(el);
+        if (isVisibleEl(el) && !el.disabled && !el.readOnly && el.getAttribute('contenteditable') !== 'false') candidates.push(el);
       }
     }
     if (!candidates.length) return null;
@@ -609,7 +631,18 @@
         // contenteditable (Claude/ChatGPT): вставляем как текст
         let ok = false;
         try { ok = document.execCommand('insertText', false, text); } catch { ok = false; }
-        if (!ok) throw new Error('execCommand failed');
+        if (!ok) {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(document.createTextNode(text));
+            range.collapse(false);
+          } else {
+            input.textContent += text;
+          }
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
       }
     } catch {
       silentCopy(text);
@@ -621,12 +654,31 @@
     return input;
   }
 
-  // Копирование без тостов и необработанных ошибок (резервный путь)
-  function silentCopy(text) {
+  // Надёжное копирование в буфер обмена с запасным путём
+  async function copyToClipboard(text) {
     try {
-      const pr = navigator.clipboard.writeText(text);
-      if (pr && pr.catch) pr.catch(() => {});
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
     } catch {}
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      (document.body || document.documentElement).appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) return true;
+    } catch {}
+    return false;
+  }
+
+  function silentCopy(text) {
+    try { copyToClipboard(text); } catch {}
   }
 
   // Короткая служебная записка в чат (видна и пользователю, и ИИ-агенту)
@@ -663,7 +715,16 @@
     const scopes = [];
     try { if (input && input.closest) { const f = input.closest('form'); if (f) scopes.push(f); } } catch {}
     scopes.push(document);
-    const sels = ['button[data-testid*="send" i]', 'button[aria-label*="send" i]', 'button[type="submit"]'];
+    const sels = [
+      'button[data-testid*="send" i]',
+      'button[aria-label*="send" i]',
+      'button[aria-label*="отправить" i]',
+      '[role="button"][data-testid*="send" i]',
+      '[role="button"][aria-label*="send" i]',
+      '[role="button"][aria-label*="отправить" i]',
+      'button[type="submit"]',
+      'button.send-button'
+    ];
     for (const scope of scopes) {
       for (const sel of sels) {
         try {
@@ -683,8 +744,8 @@
       if (btn) { btn.click(); toast('🤖 Результат отправлен ИИ'); done(); return; }
       try {
         input.focus();
-        const ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
-        input.dispatchEvent(ev);
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
         toast('⚠️ Кнопка не найдена: Enter отправлен, но чат мог его проигнорировать');
       } catch { toast('Не нашёл кнопку отправки — нажми Enter сам'); }
       done();
@@ -710,7 +771,8 @@
     const onKey = (e) => { if (e.key === 'Escape') cleanup(); };
     const cleanup = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
     backdrop.querySelector('.ax-btn-copy').onclick = async () => {
-      try { await navigator.clipboard.writeText(formatted); toast('Вывод скопирован'); } catch { toast('Не удалось скопировать'); }
+      const ok = await copyToClipboard(formatted);
+      toast(ok ? 'Вывод скопирован' : 'Не удалось скопировать');
     };
     backdrop.querySelector('.ax-btn-insert').onclick = () => {
       try { insertIntoChat('\n```text\n' + formatted + '\n```\n'); } catch {}
@@ -729,7 +791,11 @@
     const command = (text || '').trim();
     if (!command) { toast('Ничего не выделено'); return; }
     let runRunner = defaultRunner || 'shell';
-    if (settings.requireConfirm) {
+    if (runRunner === 'shell') {
+      const sniffed = sniffRunner(command);
+      if (sniffed) runRunner = sniffed;
+    }
+    if (settings.requireConfirm || isDangerous(command)) {
       const res = await confirmModal({ lang: 'selection', runner: runRunner, command });
       if (!res || !res.ok) return;
       runRunner = res.runner || runRunner;
@@ -841,8 +907,8 @@
     }
 
     btnCopy.onclick = async () => {
-      try { await navigator.clipboard.writeText(getCodeText(pre) || command); toast('Команда скопирована'); }
-      catch { toast('Не удалось скопировать'); }
+      const ok = await copyToClipboard(getCodeText(pre) || command);
+      toast(ok ? 'Команда скопирована' : 'Не удалось скопировать');
     };
 
     function refreshPreview(cmd) {
@@ -854,6 +920,7 @@
       const fin = () => { running = false; try { onDone && onDone(); } catch {} };
       if (running) { toast('Уже выполняется — дождись результата'); fin(); return; }
       running = true;
+      if (!isAuto) { loopBlocked = false; lastAutoCommands = []; }
       // команду перечитываем из блока в момент запуска (блок мог достримиться после создания панели)
       const cmd = ((cmdOverride != null ? cmdOverride : getCodeText(pre)) || '').trim();
       if (!cmd) { toast('Пустая команда'); fin(); return; }
@@ -1083,11 +1150,11 @@
       silentCopy(lastFormatted);
     };
     panel.querySelector('.ax-btn-copy-out').onclick = async () => {
-      try { await navigator.clipboard.writeText(lastFormatted); toast('Вывод скопирован'); }
-      catch { toast('Не удалось скопировать'); }
+      const ok = await copyToClipboard(lastFormatted);
+      toast(ok ? 'Вывод скопирован' : 'Не удалось скопировать');
     };
 
-    const autoHandle = { el: panel, started: false, done: false, finish() { this.done = true; }, start() { startAuto(); }, showQueued(i) { showQueued(i); }, runNow(cb) { runAutoNow(cb); }, retry() { if (!this.done) this.started = false; this.start(); } };
+    const autoHandle = { el: panel, started: false, done: false, finish() { this.done = true; }, start() { startAuto(); }, showQueued(i) { showQueued(i); }, runNow(cb) { runAutoNow(cb); }, retry() { if (!this.done) { this.started = false; autoCancelled = false; } this.start(); } };
     livePanels.push(autoHandle);
     // Старт автозапуска — только после вставки панели в DOM (вызывает scan, см. ниже):
     // очередь считает disconnected-панели мёртвыми и пропускает их.
@@ -1112,6 +1179,8 @@
           if (note && flags.weak) note.textContent = '🔍 находка нестрогая (EXECUTE?) — автозапуск разрешён';
           toast('🤖 Автопилот включён полностью (выполнение + вставка + отправка)');
           q.remove();
+          loopBlocked = false;
+          lastAutoCommands = [];
           autoHandle.started = false;
           autoCancelled = false;
           forceAutoOnce = true;
@@ -1127,7 +1196,9 @@
   // ---------- Сканирование страницы ----------
 
   function scan(root = document, force = false) {
-    const pres = root.querySelectorAll ? root.querySelectorAll('pre') : [];
+    const pres = [];
+    if (root && root.tagName === 'PRE') pres.push(root);
+    else if (root && root.querySelectorAll) pres.push(...root.querySelectorAll('pre'));
     // Чистим livePanels от удалённых из DOM (иначе висят мёртвые ссылки + растёт массив)
     for (let i = livePanels.length - 1; i >= 0; i--) {
       if (livePanels[i].el && !livePanels[i].el.isConnected) livePanels.splice(i, 1);
@@ -1210,7 +1281,7 @@
     dot.title = 'AI Execute Runner: клик — проверить сервер, двойной клик — диагностика блоков';
     dot.onclick = checkServer;
     dot.ondblclick = (e) => { e.preventDefault(); debugBlocks(true); };
-    document.body.appendChild(dot);
+    (document.body || document.documentElement).appendChild(dot);
   }
 
   let pingFails = 0; // подряд идущие провалы пинга (единичный пропуск бейдж не гасит)

@@ -21,11 +21,11 @@
   <h2>⚡ AI Execute Runner</h2>
   <div id="status" class="status">Проверка сервера…</div>
   <div class="row">
-    <label>Адрес локального сервера</label>
+    <label for="serverUrl">Адрес локального сервера</label>
     <input type="text" id="serverUrl" value="http://127.0.0.1:8765">
   </div>
   <div class="row">
-    <label>Таймаут команды (сек)</label>
+    <label for="timeout">Таймаут команды (сек)</label>
     <input type="number" id="timeout" value="30" min="2" max="600">
   </div>
   <div class="row check">
@@ -37,7 +37,7 @@
     <div class="row check"><input type="checkbox" id="autoExecute"><label for="autoExecute" style="font-weight:500">Автовыполнение новых execute-блоков</label></div>
     <div class="row check"><input type="checkbox" id="autoInsert"><label for="autoInsert" style="font-weight:500">Автовставка вывода в поле ввода</label></div>
     <div class="row check"><input type="checkbox" id="autoSend"><label for="autoSend" style="font-weight:500">Автоотправка результата ИИ</label></div>
-    <div class="row"><label>Задержка перед автозапуском, сек</label><input type="number" id="autoDelay" value="3" min="0" max="30"></div>
+    <div class="row"><label for="autoDelay">Задержка перед автозапуском, сек</label><input type="number" id="autoDelay" value="3" min="0" max="30"></div>
     <div id="autoWarn" class="status err" style="display:none">⚠️ Автопилот включён: команды выполняются БЕЗ подтверждения. Опасные (rm -rf, sudo…) — всё равно только вручную.</div>
   </div>
   <button class="btn-main" id="save">💾 Сохранить</button>

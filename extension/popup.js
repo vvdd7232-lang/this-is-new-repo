@@ -37,12 +37,14 @@ async function ping() {
   box.textContent = 'Проверка сервера…';
   const serverUrl = $('serverUrl').value.trim();
   chrome.runtime.sendMessage({ type: 'AX_PING', serverUrl }, (resp) => {
-    if (resp && resp.ok) {
+    const err = chrome.runtime.lastError;
+    if (!err && resp && resp.ok) {
       box.className = 'status ok';
       box.textContent = '✅ Сервер на связи: ' + JSON.stringify(resp.info);
     } else {
       box.className = 'status err';
-      box.textContent = '❌ Сервер недоступен (' + ((resp && resp.error) || 'нет ответа') + '). Запустите: python server.py';
+      const msg = (err && err.message) || (resp && resp.error) || 'нет ответа';
+      box.textContent = '❌ Сервер недоступен (' + msg + '). Запустите: python server.py';
     }
   });
 }
@@ -73,9 +75,27 @@ $('ping').onclick = ping;
 
 $('copyPrompt').onclick = async () => {
   try {
-    await navigator.clipboard.writeText(AX_PROMPT);
-    $('copyPrompt').textContent = '✅ Промпт скопирован!';
-    setTimeout(() => ($('copyPrompt').textContent = '📋 Скопировать промпт для ИИ'), 2000);
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(AX_PROMPT);
+      ok = true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = AX_PROMPT;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    }
+    if (ok) {
+      $('copyPrompt').textContent = '✅ Промпт скопирован!';
+      setTimeout(() => ($('copyPrompt').textContent = '📋 Скопировать промпт для ИИ'), 2000);
+    } else {
+      alert('Не удалось скопировать. Полный промпт лежит в файле SYSTEM_PROMPT.md');
+    }
   } catch {
     alert('Не удалось скопировать. Полный промпт лежит в файле SYSTEM_PROMPT.md');
   }
@@ -87,3 +107,9 @@ $('autoInsert').onchange = () => { if (!$('autoInsert').checked) $('autoSend').c
 $('openOptions').onclick = () => { chrome.runtime.openOptionsPage(); };
 
 load();
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') {
+    $('save').click();
+  }
+});
