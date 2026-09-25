@@ -75,10 +75,15 @@ http://127.0.0.1:8765
 
 ### Шаг 2. Установи расширение в Firefox (основной браузер)
 
-1. Открой в Firefox адрес `about:debugging#/runtime/this-firefox`
-2. Нажми **«Загрузить временное дополнение…»** (Load Temporary Add-on…)
-3. Выбери файл `manifest.json` в папке `extension/` (или архив `ai-execute-extension.zip`)
-4. Готово! Иконка ⚡ появится на панели инструментов
+**Способ 1 (через распакованную папку — рекомендуется при разработке):**
+1. Распакуй архив проекта `ai-execute-extension.zip` (если скачивал zip)
+2. В Firefox открой адрес: `about:debugging#/runtime/this-firefox`
+3. Нажми кнопку **«Загрузить временное дополнение…»** (Load Temporary Add-on…)
+4. Зайди в папку **`extension/`** и выбери файл **`manifest.json`**!
+   *(⚠️ Важно: выбирай именно файл `manifest.json` внутри папки `extension`, а не общий архив проекта — в архиве проекта `manifest.json` лежит не в корне, поэтому Firefox ругается «does not contain a valid manifest»).*
+
+**Способ 2 (в 1 клик без распаковки):**
+- В репозитории есть готовый файл **`firefox-addon.xpi`** (где `manifest.json` лежит прямо в корне архива) — в окне выбора файла можно сразу нажать на `firefox-addon.xpi`!
 
 > 💡 **Для Chrome / Edge:** в папке `extension/` лежит готовый `manifest.chrome.json`. Чтобы запустить в Chrome, замени `manifest.json`:
 > ```bash
