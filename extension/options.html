@@ -76,6 +76,12 @@
       <input type="text" id="defaultCwd" placeholder="например: C:\Users\Имя\projects">
       <div class="desc">Все команды будут выполняться в этой папке. Должна существовать на ПК, иначе сервер вернёт ошибку «cwd not found».</div>
     </div>
+
+    <div class="field">
+      <label class="title" for="authToken">Токен доступа</label>
+      <input type="password" id="authToken" placeholder="вставьте токен из консоли server.py">
+      <div class="desc">Если сервер запущен с токеном (по умолчанию), скопируй его из вывода <code>python server.py</code> — строка «Токен доступа: …». Оставь пустым, если сервер запущен с флагом <code>--no-token</code>.</div>
+    </div>
     <button id="testBtn" class="btn">🔄 Проверить подключение</button>
     <div class="desc" style="margin-top:8px">Запуск сервера: <code>python server.py [--port 8765] [--cwd PATH] [--max-output N] [--verbose]</code></div>
   </section>

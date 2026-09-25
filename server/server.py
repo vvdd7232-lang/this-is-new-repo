@@ -10,19 +10,27 @@ AI Execute Runner — локальный сервер выполнения ко�
 Зависимостей нет — только стандартная библиотека.
 """
 import argparse
+import hmac
 import json
 import os
 import platform
+import secrets
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.4.1'
+VERSION = '2.5.1.1'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
+AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
+LOG_FILE = None  # путь к файлу логов (None = только консоль)
+RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
+_rate_lock = threading.Lock()
+_rate_times = []  # timestamps последних запусков (для rate limit)
 VERBOSE = False  # True => логировать вообще всё, включая /ping
 
 def _readable_score(s):
@@ -101,6 +109,37 @@ def _clip(text):
     return data[:MAX_OUTPUT].decode('utf-8', errors='ignore'), True
 
 
+def _log(msg):
+    """Печатает в stdout и (если задан LOG_FILE) пишет с timestamp в файл."""
+    try:
+        sys.stdout.write(msg + '\n')
+        sys.stdout.flush()
+    except Exception:
+        pass
+    if LOG_FILE:
+        try:
+            ts = time.strftime('%Y-%m-%d %H:%M:%S')
+            with open(LOG_FILE, 'a', encoding='utf-8') as f:
+                f.write(f'[{ts}] {msg}\n')
+        except OSError:
+            pass
+
+
+def _check_rate():
+    """Проверяет rate limit. Возвращает (ok, wait_seconds)."""
+    if RATE_LIMIT <= 0:
+        return True, 0.0
+    now = time.time()
+    with _rate_lock:
+        while _rate_times and now - _rate_times[0] > 60:
+            _rate_times.pop(0)
+        if len(_rate_times) >= RATE_LIMIT:
+            wait = 60.0 - (now - _rate_times[0])
+            return False, max(0.0, wait)
+        _rate_times.append(now)
+        return True, 0.0
+
+
 def execute(payload):
     command = payload.get('command') or ''
     if not isinstance(command, str):
@@ -123,8 +162,8 @@ def execute(payload):
         return {'ok': False, 'executed': False, 'error': f'unknown runner: {runner}'}
     t0 = time.monotonic()  # замер длительности выполнения
 
-    print(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}', flush=True)
-    print(f'--- command ---\n{command[:2000]}', flush=True)
+    _log(f'\n[run] runner={runner} timeout={timeout}s cwd={cwd or os.getcwd()}')
+    _log(f'--- command ---\n{command[:2000]}')
 
     try:
         if runner == 'shell':
@@ -182,7 +221,7 @@ def execute(payload):
     clipped_out, t1 = _clip(stdout)
     clipped_err, t2 = _clip(stderr)
     dur_ms = int((time.monotonic() - t0) * 1000)
-    print(f'[done] exit={p.returncode} dur={dur_ms}ms stdout={len(raw_out)}B stderr={len(raw_err)}B', flush=True)
+    _log(f'[done] exit={p.returncode} dur={dur_ms}ms stdout={len(raw_out)}B stderr={len(raw_err)}B')
     return {'ok': True, 'runner': runner, 'command': command, 'exit_code': p.returncode,
             'executed': True, 'cwd': eff_cwd,
             'stdout': clipped_out, 'stderr': clipped_err, 'truncated': (t1 or t2),
@@ -212,10 +251,17 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return False
 
+    def _check_token(self):
+        """True если токен валиден (или не требуется). False - отклонить."""
+        if not AUTH_TOKEN:
+            return True
+        got = (self.headers.get('X-Auth-Token') or '').strip()
+        return hmac.compare_digest(got, AUTH_TOKEN)
+
     def _cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Token')
 
     def do_OPTIONS(self):
         if not self._allowed():
@@ -241,7 +287,10 @@ class Handler(BaseHTTPRequestHandler):
         req_path = urlparse(self.path).path
         if req_path.rstrip('/') in ('/ping', ''):
             self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
-                        'cwd': os.getcwd(), 'python': sys.version.split()[0]})
+                        'cwd': os.getcwd(), 'python': sys.version.split()[0],
+                        'auth_required': bool(AUTH_TOKEN),
+                        'auth_ok': (None if not AUTH_TOKEN else hmac.compare_digest(
+                            (self.headers.get('X-Auth-Token') or '').strip(), AUTH_TOKEN))})
         else:
             self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
 
@@ -250,6 +299,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
         if urlparse(self.path).path.rstrip('/') != '/run':
             return self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
+        if not self._check_token():
+            return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
+        ok_rate, wait_s = _check_rate()
+        if not ok_rate:
+            return self._json({'ok': False, 'error': f'rate limit exceeded ({RATE_LIMIT}/min), retry in {wait_s:.1f}s'}, 429)
         try:
             length = int(self.headers.get('Content-Length', 0))
         except ValueError:
@@ -283,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
         # Полный лог включается флагом:  python server.py --verbose
         if not VERBOSE and args and isinstance(args[0], str) and args[0].startswith('GET /ping'):
             return
-        sys.stdout.write('[http] ' + fmt % args + '\n')
+        _log('[http] ' + fmt % args)
 
 class QuietServer(ThreadingHTTPServer):
     """Многопоточный сервер: /ping отвечает мгновенно даже во время долгой команды.
@@ -316,9 +370,27 @@ def main():
                     help='лимит stdout/stderr в байтах (0 = без лимита)')
     ap.add_argument('--cwd', default=None,
                     help='рабочий каталог сервера (по умолчанию — папка запуска)')
+    ap.add_argument('--token', default=None,
+                    help='свой токен (по умолчанию генерируется случайный)')
+    ap.add_argument('--no-token', action='store_true',
+                    help='отключить токен-аутентификацию (не рекомендуется)')
+    ap.add_argument('--log', default=None,
+                    help='файл для логов (по умолчанию — только консоль)')
+    ap.add_argument('--rate-limit', type=int, default=0,
+                    help='макс. команд в минуту (0 = без лимита)')
     args = ap.parse_args()
     VERBOSE = args.verbose
     MAX_OUTPUT = args.max_output if args.max_output >= 0 else 1_000_000
+    global AUTH_TOKEN
+    if args.no_token:
+        AUTH_TOKEN = None
+    elif args.token:
+        AUTH_TOKEN = args.token.strip()
+    else:
+        AUTH_TOKEN = secrets.token_urlsafe(24)
+    global LOG_FILE, RATE_LIMIT
+    LOG_FILE = args.log.strip() if args.log else None
+    RATE_LIMIT = max(0, args.rate_limit)
     # Стартовый cwd: запуск из системной папки (System32 через ярлык/автозапуск)
     # ломает все относительные пути — в этом случае уходим в домашнюю папку.
     if args.cwd:
@@ -336,15 +408,19 @@ def main():
     except OSError as e:
         print(f'ошибка: не могу занять порт {args.port}: {e}')
         sys.exit(1)
-    _prt = __import__('functools').partial(print, flush=True)
-    _prt('=' * 60)
-    _prt(f'  AI Execute Runner v{VERSION} — локальный сервер запущен')
-    _prt(f'  http://127.0.0.1:{args.port}  (только этот ПК, platform={platform.system()})')
-    _prt('  Откройте ChatGPT / Claude / Arena, ИИ пишет ```execute — подтверждайте запуск.')
-    _prt(f'  Лимит вывода: {MAX_OUTPUT} байт (0 = без лимита)')
-    _prt(f'  Рабочий каталог: {os.getcwd()}')
-    _prt('  Остановка: Ctrl+C')
-    _prt('=' * 60)
+    _log('=' * 60)
+    _log(f'  AI Execute Runner v{VERSION} — локальный сервер запущен')
+    _log(f'  http://127.0.0.1:{args.port}  (только этот ПК, platform={platform.system()})')
+    _log('  Откройте ChatGPT / Claude / Arena, ИИ пишет ```execute — подтверждайте запуск.')
+    _log(f'  Лимит вывода: {MAX_OUTPUT} байт (0 = без лимита)')
+    _log(f'  Рабочий каталог: {os.getcwd()}')
+    if AUTH_TOKEN:
+        _log(f'  Токен доступа: {AUTH_TOKEN}')
+        _log('  Скопируйте его в настройки расширения (поле Токен)')
+    else:
+        _log('  [!] Токен-аутентификация отключена (--no-token)')
+    _log('  Остановка: Ctrl+C')
+    _log('=' * 60)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

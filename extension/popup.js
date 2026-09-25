@@ -31,13 +31,14 @@ function clamp(v, lo, hi, fb) {
 async function load() {
   let d;
   try {
-    d = await axStorageGet('sync', ['serverUrl', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay']);
+    d = await axStorageGet('sync', ['serverUrl', 'authToken', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay']);
   } catch {
     $('status').className = 'status err';
     $('status').textContent = '❌ Не удалось прочитать настройки (расширение обновляется? закрой попап и открой заново)';
     return;
   }
   if (d.serverUrl) $('serverUrl').value = d.serverUrl;
+  if (d.authToken) $('authToken').value = d.authToken;
   if (d.timeout != null) $('timeout').value = d.timeout;
   $('requireConfirm').checked = d.requireConfirm !== false;
   $('autoExecute').checked = d.autoExecute === true;
@@ -59,8 +60,17 @@ async function ping() {
   if (pr && pr.then) {
     pr.then((resp) => {
       if (resp && resp.ok) {
-        box.className = 'status ok';
-        box.textContent = '✅ Сервер на связи: ' + JSON.stringify(resp.info);
+        const info = resp.info || {};
+        if (info.auth_required && info.auth_ok === false) {
+          box.className = 'status err';
+          box.textContent = '⚠️ Сервер на связи, но токен неверный. Проверь поле «Токен доступа».';
+        } else if (info.auth_required && info.auth_ok === true) {
+          box.className = 'status ok';
+          box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
+        } else {
+          box.className = 'status ok';
+          box.textContent = '✅ Сервер на связи: ' + JSON.stringify(info);
+        }
       } else {
         box.className = 'status err';
         box.textContent = '❌ Сервер недоступен (' + ((resp && resp.error) || 'нет ответа') + '). Запустите: python server.py';
@@ -73,8 +83,17 @@ async function ping() {
     chrome.runtime.sendMessage({ type: 'AX_PING', serverUrl }, (resp) => {
       const err = chrome.runtime.lastError;
       if (!err && resp && resp.ok) {
-        box.className = 'status ok';
-        box.textContent = '✅ Сервер на связи: ' + JSON.stringify(resp.info);
+        const info = resp.info || {};
+        if (info.auth_required && info.auth_ok === false) {
+          box.className = 'status err';
+          box.textContent = '⚠️ Сервер на связи, но токен неверный. Проверь поле «Токен доступа».';
+        } else if (info.auth_required && info.auth_ok === true) {
+          box.className = 'status ok';
+          box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
+        } else {
+          box.className = 'status ok';
+          box.textContent = '✅ Сервер на связи: ' + JSON.stringify(info);
+        }
       } else {
         box.className = 'status err';
         const msg = (err && err.message) || (resp && resp.error) || 'нет ответа';
@@ -95,6 +114,7 @@ $('save').onclick = async () => {
   if (autoSend && !autoInsert) { autoInsert = true; $('autoInsert').checked = true; }
   await axStorageSet('sync', {
     serverUrl: $('serverUrl').value.trim() || 'http://127.0.0.1:8765',
+    authToken: ($('authToken').value || '').trim(),
     timeout: clamp($('timeout').value, 2, 600, 30),
     requireConfirm: $('requireConfirm').checked,
     autoExecute: $('autoExecute').checked,

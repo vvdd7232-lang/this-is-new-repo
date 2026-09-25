@@ -4,7 +4,7 @@
 const DEFAULTS = {
   serverUrl: 'http://127.0.0.1:8765',
   timeout: 30,          // секунд, дефолтный таймаут выполнения
-  requireConfirm: true, // ВСЕГДА спрашивать подтверждение перед выполнением
+  requireConfirm: true, // спрашивать подтверждение перед ручным запуском (можно отключить в настройках)
   maxOutputChars: 32000, // сколько символов вывода показывать/вставлять (0 = без лимита)
   autoExecute: false,   // автопилот: автовыполнение execute-блоков
   autoInsert: false,    // автопилот: автовставка вывода в чат
@@ -15,7 +15,8 @@ const DEFAULTS = {
   maxAutoRuns: 0,  // лимит автозапусков на вкладку (0 = без лимита)
   defaultRunner: 'shell',      // среда по умолчанию (выделенный текст, EXECUTE?)
   showToasts: true,           // всплывающие уведомления-тосты
-  defaultCwd: ''                // рабочая папка для команд (пусто = папка сервера)
+  defaultCwd: '',               // рабочая папка для команд (пусто = папка сервера)
+  authToken: ''                 // токен доступа (если задан --token на сервере)
 };
 
 const axApi = typeof browser !== 'undefined' ? browser : chrome;
@@ -58,9 +59,11 @@ async function runCommand({ command, runner, timeout, cwd }) {
   // таймаут запроса = таймаут команды + 8 сек запаса
   const t = setTimeout(() => ctrl.abort(), ((timeout || s.timeout || 30) + 8) * 1000);
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (s.authToken) headers['X-Auth-Token'] = s.authToken;
     const res = await fetch(base + '/run', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ command, runner, timeout: timeout || s.timeout, cwd }),
       signal: ctrl.signal
     });

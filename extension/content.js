@@ -91,6 +91,17 @@
     /\bmkfs\b/i, /\bdd\s+if=/i, /\bshutdown\b/i, /\breboot\b/i,
     /\bformat\s+[a-z]:/i, /del\s+\/[fs]/i, /rd\s+\/s/i,
     /\bsudo\b/i, /chmod\s+-R\s+777/i, /curl.*\|\s*(bash|sh)/i, /wget.*\|\s*(bash|sh)/i,
+  
+    // eval/exec: выполнение произвольной строки
+    /\beval\s*\(/i, /\bexec\s*\(/i, /Invoke-Expression/i,
+    // git / npm: необратимые действия
+    /git\s+push\s+.*--force/i, /git\s+push\s+-f\b/i, /npm\s+publish/i,
+    // SQL: удаление данных
+    /\bDROP\s+(TABLE|DATABASE)\b/i, /\bTRUNCATE\s+TABLE\b/i,
+    // бесконечные циклы
+    /while\s+true\s*;\s*do\s+/, /for\s*\(\s*;\s*;\s*\)/,
+    // доп. системные
+    /\bhalt\b/i, /\bpoweroff\b/i, /\bdoas\b/i,
   ];
 
   let settings = { serverUrl: 'http://127.0.0.1:8765', timeout: 30, requireConfirm: true, maxOutputChars: 32000, autoExecute: false, autoInsert: false, autoSend: false, autoDelay: 3, looseSearch: true, autoWeak: false, maxAutoRuns: 0, defaultRunner: 'shell', showToasts: true, defaultCwd: '' };
@@ -570,10 +581,6 @@
       document.body.appendChild(backdrop);
       try { backdrop.querySelector('.ax-btn-confirm').focus({ preventScroll: true }); } catch {}
     });
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   // ---------- Вставка результата в поле ввода чата ----------
