@@ -35,6 +35,11 @@ const DEFAULTS = {
   showToasts: true,
   defaultCwd: '',
   authToken: '',
+  uiTheme: 'auto',
+  panelSize: 'normal',
+  collapseAfterRun: false,
+  soundOnComplete: false,
+  browserNotify: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -79,6 +84,12 @@ async function load() {
   $('showToasts').checked = d.showToasts !== false;
   $('defaultCwd').value = d.defaultCwd || '';
   $('authToken').value = d.authToken || '';
+  setSeg('uiTheme', d.uiTheme || 'auto');
+  setSeg('panelSize', d.panelSize || 'normal');
+  $('collapseAfterRun').checked = d.collapseAfterRun === true;
+  $('soundOnComplete').checked = d.soundOnComplete === true;
+  $('browserNotify').checked = d.browserNotify === true;
+  applyTheme(d.uiTheme || 'auto');
   updateWarn();
   try {
     const v = 'v' + axApi.runtime.getManifest().version;

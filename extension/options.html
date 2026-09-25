@@ -1,26 +1,85 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="">
 <head>
 <meta charset="utf-8">
 <title>AI Execute Runner — Настройки</title>
 <style>
-  :root { color-scheme: light dark; --bg:#f3f4f6; --card:#ffffff; --text:#111827; --muted:#6b7280;
-          --border:#e5e7eb; --accent:#7c5cff; --ok-bg:#dcfce7; --err-bg:#fee2e2; --code-bg:#0d1117; --code-fg:#e6edf3; }
+  :root {
+    color-scheme: light dark;
+    --radius: 14px;
+    --gap: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  /* --- Light --- */
+  :root, html[data-theme='light'] {
+    --bg:#f3f4f6; --card:#ffffff; --text:#111827; --muted:#6b7280;
+    --border:#e5e7eb; --accent:#7c5cff; --accent-fg:#ffffff;
+    --ok-bg:#dcfce7; --ok-fg:#166534;
+    --warn-bg:#fef3c7; --warn-fg:#92400e;
+    --err-bg:#fee2e2; --err-fg:#991b1b;
+    --code-bg:#0d1117; --code-fg:#e6edf3;
+    --hover:#f9fafb;
+  }
+  /* --- Dark --- */
+  html[data-theme='dark'] {
+    --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8;
+    --border:#334155; --accent:#8b7bff; --accent-fg:#ffffff;
+    --ok-bg:#14532d; --ok-fg:#86efac;
+    --warn-bg:#78350f; --warn-fg:#fde68a;
+    --err-bg:#7f1d1d; --err-fg:#fca5a5;
+    --code-bg:#020617; --code-fg:#e2e8f0;
+    --hover:#273549;
+  }
+  /* --- Auto (system) --- */
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#111827; --card:#1f2937; --text:#f3f4f6; --muted:#9ca3af; --border:#374151;
-            --ok-bg:#14532d; --err-bg:#7f1d1d; }
+    html:not([data-theme]) {
+      --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8;
+      --border:#334155; --accent:#8b7bff; --accent-fg:#ffffff;
+      --ok-bg:#14532d; --ok-fg:#86efac;
+      --warn-bg:#78350f; --warn-fg:#fde68a;
+      --err-bg:#7f1d1d; --err-fg:#fca5a5;
+      --code-bg:#020617; --code-fg:#e2e8f0;
+      --hover:#273549;
+    }
   }
   * { box-sizing: border-box; }
-  body { margin:0; padding:20px 16px 40px; background:var(--bg); color:var(--text);
-         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:14px; line-height:1.5; }
-  .wrap { max-width: 780px; margin: 0 auto; }
-  header.top { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
-  header.top .logo { font-size:30px; }
-  header.top h1 { font-size:22px; margin:0; }
-  .muted { color: var(--muted); font-size:13px; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:13px 15px; margin:11px 0; }
-  .card h2 { margin:0 0 2px 0; font-size:16px; }
-  .card .sub { color:var(--muted); font-size:13px; margin-bottom:10px; }
+  body { margin:0; padding:0 0 60px; background:var(--bg); color:var(--text);
+         font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+         font-size:14px; line-height:1.5; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 0 16px; }
+  /* --- Sticky topbar --- */
+  .topbar { position: sticky; top:0; z-index:50; background:var(--card);
+            border-bottom:1px solid var(--border); padding:10px 16px;
+            backdrop-filter: blur(8px); }
+  .topbar-inner { max-width:820px; margin:0 auto; display:flex; align-items:center; gap:12px; }
+  .topbar .logo { font-size:24px; }
+  .topbar h1 { font-size:17px; margin:0; flex:1; }
+  .topbar .actions { display:flex; gap:6px; align-items:center; }
+  .dirty-dot { width:8px; height:8px; border-radius:50%; background:#f59e0b;
+               display:none; margin-right:4px; }
+  .dirty-dot.on { display:inline-block; }
+  /* --- Search --- */
+  .search-wrap { position:relative; margin:12px 0 0; }
+  .search-wrap input { width:100%; padding:10px 36px 10px 36px; font-size:14px;
+                       border:1px solid var(--border); border-radius:10px;
+                       background:var(--card); color:var(--text); }
+  .search-wrap::before { content:'\1F50D'; position:absolute; left:12px; top:50%;
+                         transform:translateY(-50%); font-size:14px; opacity:.6; }
+  /* --- Cards / accordion --- */
+  .card { background:var(--card); border:1px solid var(--border);
+          border-radius:var(--radius); padding:0; margin:var(--gap) 0;
+          box-shadow:var(--shadow); overflow:hidden; }
+  .card.hidden { display:none; }
+  .card > summary { cursor:pointer; padding:14px 16px; list-style:none;
+                    display:flex; align-items:center; gap:10px; user-select:none; }
+  .card > summary::-webkit-details-marker { display:none; }
+  .card > summary::after { content:'\25BE'; margin-left:auto; opacity:.5;
+                           transition:transform .15s; font-size:12px; }
+  .card[open] > summary::after { transform:rotate(-180deg); }
+  .card > summary h2 { margin:0; font-size:15px; font-weight:700; }
+  .card > summary .chev { margin-left:auto; }
+  .card .body { padding:0 16px 16px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:10px; }
   .field { margin:9px 0; }
   .field > label.title { display:block; font-weight:600; margin-bottom:4px; }
   .field .desc { color:var(--muted); font-size:12.5px; margin-top:3px; }
@@ -28,38 +87,59 @@
   .check input { margin-top:3px; width:16px; height:16px; flex:none; }
   .check b { display:block; }
   .check span.d { color:var(--muted); font-size:12.5px; font-weight:400; }
-  input[type=text], input[type=number], select {
+  input[type=text], input[type=number], input[type=password], select {
     width:100%; max-width:420px; padding:8px 10px; font-size:14px;
-    border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text);
-  }
+    border:1px solid var(--border); border-radius:8px;
+    background:var(--bg); color:var(--text); }
   input[type=number], select { max-width:220px; }
-  .btn { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:8px 14px;
-         font-size:14px; font-weight:700; background:var(--card); color:var(--text); margin:4px 8px 4px 0; }
-  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:0; }
+  .btn { cursor:pointer; border:1px solid var(--border); border-radius:9px;
+         padding:8px 14px; font-size:14px; font-weight:600;
+         background:var(--card); color:var(--text); margin:4px 8px 4px 0;
+         transition: background .12s; }
+  .btn:hover { background:var(--hover); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
+  .btn.primary:hover { filter:brightness(1.08); }
   .btn.danger { color:#dc2626; }
-  code { font-family:ui-monospace, Consolas, monospace; font-size:12.5px; background:var(--bg);
-         border:1px solid var(--border); border-radius:6px; padding:1px 6px; }
-  .status { padding:10px 14px; border-radius:10px; background:var(--card); border:1px solid var(--border); margin:12px 0; font-size:13.5px; }
-  .status.ok { background:var(--ok-bg); }
-  .status.err { background:var(--err-bg); }
+  code { font-family:ui-monospace, Consolas, monospace; font-size:12.5px;
+         background:var(--bg); border:1px solid var(--border);
+         border-radius:6px; padding:1px 6px; }
+  .status { padding:10px 14px; border-radius:10px; background:var(--card);
+            border:1px solid var(--border); margin:12px 0; font-size:13.5px; }
+  .status.ok { background:var(--ok-bg); color:var(--ok-fg); }
+  .status.err { background:var(--err-bg); color:var(--err-fg); }
+  .status.warn { background:var(--warn-bg); color:var(--warn-fg); }
   #autoWarn { display:none; margin-top:10px; }
   .toolbar { display:flex; gap:4px; align-items:center; flex-wrap:wrap; margin:10px 0; }
-  footer { margin-top:18px; color:var(--muted); font-size:12.5px; text-align:center; }
+  footer { margin-top:24px; color:var(--muted); font-size:12.5px; text-align:center; }
+  /* segment control */
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:9px;
+         overflow:hidden; }
+  .seg button { padding:7px 12px; font-size:13px; border:0; background:var(--card);
+                color:var(--text); cursor:pointer; }
+  .seg button + button { border-left:1px solid var(--border); }
+  .seg button.on { background:var(--accent); color:var(--accent-fg); }
+  .row-inline { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 </style>
 </head>
 <body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <span class="logo">⚡</span>
+    <h1>AI Execute Runner — Настройки</h1>
+    <div class="actions">
+      <span class="dirty-dot" id="dirtyDot" title="Есть несохранённые изменения"></span>
+      <button id="saveTop" class="btn primary">💾 Сохранить</button>
+    </div>
+  </div>
+</div>
 <div class="wrap">
-  <header class="top">
-    <div class="logo">⚡</div>
-    <div><h1>AI Execute Runner — Настройки</h1>
-    <div class="muted">Версия <span id="ver">…</span> · хранятся в Chrome Sync · применяются ко всем вкладкам сразу</div></div>
-  </header>
-
+  <div class="muted" style="margin-top:14px">Версия <span id="ver">…</span> · хранятся в Chrome Sync · применяются ко всем вкладкам сразу</div>
+  <div class="search-wrap"><input type="text" id="settingsSearch" placeholder="Поиск по настройкам…"></div>
   <div id="status" class="status">Загрузка настроек…</div>
-  <div class="toolbar"><button id="saveTop" class="btn primary">💾 Сохранить</button></div>
 
-  <section class="card">
-    <h2>🖥 Локальный сервер</h2>
+  <details class="card" open>
+    <summary><h2>🖥 Локальный сервер</h2></summary><div class="body">
     <div class="sub">Программа <code>server.py</code> на твоём ПК — она и выполняет команды. Расширение только передаёт их.</div>
     <div class="field">
       <label class="title" for="serverUrl">Адрес сервера</label>
@@ -90,19 +170,19 @@
       <div id="whitelistInfo" class="desc">Проверка не выполнена — открой попап для ping.</div>
       <div class="desc">Если сервер запущен с флагом <code>--whitelist FILE</code>, будут выполняться только команды из этого файла (по префиксу). Цепочки и пайпы (<code>;</code>, <code>&amp;&amp;</code>, <code>|</code>) запрещены. Ручной запуск кнопкой ▶ не ограничен.</div>
     </div>
-  </section>
+  </div></details>
 
-  <section class="card">
-    <h2>🛡️ Подтверждения</h2>
+  <details class="card" open>
+    <summary><h2>🛡️ Подтверждения</h2></summary><div class="body">
     <div class="sub">Ручной режим: каждый запуск — только после твоего клика.</div>
     <div class="check"><input type="checkbox" id="requireConfirm">
       <label for="requireConfirm"><b>Спрашивать подтверждение перед каждым ручным запуском</b>
       <span class="d">Окно с текстом команды + красное предупреждение на опасных (rm -rf, sudo, format…). Не выключай без нужды.</span></label>
     </div>
-  </section>
+  </div></details>
 
-  <section class="card">
-    <h2>🤖 Автопилот</h2>
+  <details class="card" open>
+    <summary><h2>🤖 Автопилот</h2></summary><div class="body">
     <div class="sub">Полный цикл без рук: команда выполняется сама → вывод сам вставляется → сам отправляется ИИ.</div>
     <div class="check"><input type="checkbox" id="autoExecute">
       <label for="autoExecute"><b>Автовыполнение новых execute-блоков</b>
@@ -136,10 +216,10 @@
       <button id="clearHistory" class="btn" style="margin-top:6px">🗑 Очистить историю</button>
     </div>
     <div id="autoWarn" class="status err">⚠️ Автопилот включён: команды будут выполняться БЕЗ подтверждения. Опасные (rm -rf, sudo…) — всё равно только вручную.</div>
-  </section>
+  </div></details>
 
-  <section class="card">
-    <h2>🔀 Среды выполнения</h2>
+  <details class="card" open>
+    <summary><h2>🔀 Среды выполнения</h2></summary><div class="body">
     <div class="sub">В чём запускать команды. Точный язык блока (<code>execute-python</code> и т.п.) всегда важнее этой настройки.</div>
     <div class="field">
       <label class="title" for="defaultRunner">Среда по умолчанию</label>
@@ -151,19 +231,19 @@
       </select>
       <div class="desc">Используется для «Выполнить выделенное» (правый клик) и блоков EXECUTE?, где язык не распознан. На каждой панели среду можно переключить вручную — выбор запоминается автоматически.</div>
     </div>
-  </section>
+  </div></details>
 
-  <section class="card">
-    <h2>🔍 Поиск execute-блоков</h2>
+  <details class="card" open>
+    <summary><h2>🔍 Поиск execute-блоков</h2></summary><div class="body">
     <div class="sub">Как расширение находит команды в ответах ИИ.</div>
     <div class="check"><input type="checkbox" id="looseSearch">
       <label for="looseSearch"><b>Нестрогий поиск</b>
       <span class="d">Кнопка ▶ появляется, даже если ИИ написал слово «execute» обычным текстом рядом с кодом. Строгая находка = панель EXECUTE, нестрогая = EXECUTE? (по умолчанию только вручную).</span></label>
     </div>
-  </section>
+  </div></details>
 
-  <section class="card">
-    <h2>📏 Лимиты вывода</h2>
+  <details class="card" open>
+    <summary><h2>📏 Лимиты вывода</h2></summary><div class="body">
     <div class="sub">Защита от гигантских выводов. 0 = без лимита (осторожно с токенами при автоотправке).</div>
     <div class="field">
       <label class="title" for="maxOutputChars">Лимит вставки вывода в чат, символов</label>
@@ -171,26 +251,64 @@
       <div class="desc">Сколько символов результата вставлять в поле ввода. При обрезке в тексте есть пометка с лимитом.</div>
     </div>
     <div class="desc">Лимит на стороне сервера (по умолчанию 1 МБ): <code>python server.py --max-output 0</code></div>
-  </section>
+  </div></details>
 
-  <section class="card">
-    <h2>🔔 Уведомления</h2>
+  <details class="card" open>
+    <summary><h2>🔔 Уведомления</h2></summary><div class="body">
     <div class="check"><input type="checkbox" id="showToasts">
       <label for="showToasts"><b>Всплывающие тосты</b>
       <span class="d">Короткие подсказки внизу экрана («найден execute-блок», «результат отправлен ИИ»…). Ошибки всё равно видны на панелях.</span></label>
     </div>
-  </section>
+    <div class="check"><input type="checkbox" id="browserNotify">
+      <label for="browserNotify"><b>Уведомление браузера при завершении команды</b>
+      <span class="d">Показывает системное уведомление, когда вкладка не в фокусе. Ошибки видны всегда.</span></label>
+    </div>
+  </div></details>
 
-  <section class="card">
-    <h2>📋 Промпт для ИИ</h2>
+    <details class="card" open>
+    <summary><h2>🎨 Внешний вид</h2></summary><div class="body">
+    <div class="sub">Тема, размер панелей и звуки. Чисто для удобства.</div>
+    <div class="field">
+      <label class="title">Тема интерфейса</label>
+      <div class="seg" id="uiTheme">
+        <button type="button" data-v="auto">🌓 Как в системе</button>
+        <button type="button" data-v="light">☀️ Светлая</button>
+        <button type="button" data-v="dark">🌙 Тёмная</button>
+      </div>
+      <div class="desc">Применяется к странице настроек, попапу и панелям на сайтах.</div>
+    </div>
+    <div class="field">
+      <label class="title">Размер панелей в чате</label>
+      <div class="seg" id="panelSize">
+        <button type="button" data-v="compact">Компактный</button>
+        <button type="button" data-v="normal">Обычный</button>
+        <button type="button" data-v="large">Крупный</button>
+      </div>
+      <div class="desc">Размер шрифта и отступы в панелях под кодом.</div>
+    </div>
+    <div class="check"><input type="checkbox" id="collapseAfterRun">
+      <label for="collapseAfterRun"><b>Сворачивать панель после выполнения</b>
+      <span class="d">Экономит место в длинных чатах.</span></label>
+    </div>
+    <div class="check"><input type="checkbox" id="soundOnComplete">
+      <label for="soundOnComplete"><b>Звук при завершении команды</b>
+      <span class="d">Короткий сигнал через Web Audio — успех или ошибка.</span></label>
+    </div>
+  </div></details>
+
+<details class="card" open>
+    <summary><h2>📋 Промпт для ИИ</h2></summary><div class="body">
     <div class="sub">Специальный промпт, обучающий ИИ писать execute-блоки. Вставь его первым сообщением в чат.</div>
     <button id="copyPrompt" class="btn">📋 Скопировать промпт для ИИ</button>
     <div class="desc" style="margin-top:8px">Расширенная версия («режим Codex») и разбор проблем — в файлах <code>SYSTEM_PROMPT.md</code> и <code>TROUBLESHOOTING.md</code>.</div>
-  </section>
+  </div></details>
 
-  <div class="toolbar">
+  <div class="toolbar" style="margin-top:20px">
     <button id="save" class="btn primary">💾 Сохранить всё</button>
     <button id="reset" class="btn danger">↩️ Сбросить к умолчанию</button>
+    <button id="exportBtn" class="btn">⬇️ Экспорт</button>
+    <button id="importBtn" class="btn">⬆️ Импорт</button>
+    <input type="file" id="importFile" accept=".json" style="display:none">
   </div>
 
   <footer>AI Execute Runner · локальный инструмент: команды выполняются только на твоём ПК · <span id="ver2"></span></footer>
