@@ -882,12 +882,61 @@
 
   // ---------- Панель под блоком ----------
 
+
+  function applyPanelAppearance(panel) {
+    try {
+      const size = settings.panelSize || 'normal';
+      panel.classList.remove('ax-size-compact', 'ax-size-large');
+      if (size === 'compact') panel.classList.add('ax-size-compact');
+      else if (size === 'large') panel.classList.add('ax-size-large');
+      const theme = settings.uiTheme || 'auto';
+      panel.classList.remove('ax-theme-light', 'ax-theme-dark');
+      if (theme === 'light') panel.classList.add('ax-theme-light');
+      else if (theme === 'dark') panel.classList.add('ax-theme-dark');
+    } catch {}
+  }
+
+  function playBeep(ok) {
+    try {
+      if (!settings.soundOnComplete) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = ok ? 880 : 220;
+      gain.gain.value = 0.06;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+      setTimeout(() => { try { ctx.close(); } catch {} }, 300);
+    } catch {}
+  }
+
+  function notifyDone(ok, cmd) {
+    try {
+      if (!settings.browserNotify) return;
+      if (typeof Notification === 'undefined') return;
+      if (document.visibilityState === 'visible') return;
+      if (Notification.permission !== 'granted') {
+        try { Notification.requestPermission(); } catch {}
+        return;
+      }
+      const title = ok ? '\u2705 Команда выполнена' : '\u26a0\ufe0f Команда с ошибкой';
+      const body = (cmd || '').slice(0, 120);
+      new Notification(title, { body, silent: true });
+    } catch {}
+  }
+
   function buildPanel(pre, info, command, flags) {
     flags = flags || {};
     const createdCmd = (command || '').trim();
     const panel = document.createElement('div');
     panel.className = 'ax-exec-panel';
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) panel.classList.add('ax-dark');
+    applyPanelAppearance(panel);
 
     panel.innerHTML =
       '<div class="ax-exec-header"><span class="ax-exec-badge">⚡ EXECUTE</span>' +
@@ -1035,6 +1084,9 @@
           outBox.textContent = lastFormatted;
           outBox.style.display = 'block';
           after.style.display = 'flex';
+          playBeep(okExit);
+          notifyDone(okExit, cmd);
+          if (settings.collapseAfterRun) panel.classList.add('ax-collapsed');
           // --- автопилот: автовставка + автоотправка ---
           // Отправку ждём до конца: следующий результат встанет в очередь только
           // после неё, иначе быстрые команды склеивались бы в одно сообщение.
