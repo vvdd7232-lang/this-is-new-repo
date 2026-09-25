@@ -883,6 +883,42 @@
   // ---------- Панель под блоком ----------
 
 
+
+  function renderView(panel, view) {
+    if (!panel || !view || !view.data_url) return;
+    let box = panel.querySelector('.ax-view-wrap');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'ax-view-wrap';
+      const img = document.createElement('img');
+      img.className = 'ax-view-img';
+      img.title = 'Click to open in new tab';
+      img.onclick = () => { try { window.open(view.data_url, '_blank'); } catch (e) {} };
+      const meta = document.createElement('div');
+      meta.className = 'ax-view-meta';
+      box.appendChild(img);
+      box.appendChild(meta);
+      const after = panel.querySelector('.ax-exec-after');
+      if (after && after.parentNode) after.parentNode.insertBefore(box, after.nextSibling);
+      else panel.appendChild(box);
+    }
+    box.querySelector('.ax-view-img').src = view.data_url;
+    box.querySelector('.ax-view-meta').textContent = view.path + ' (' + view.mime + ', ' + view.size + ' B)';
+  }
+
+  function insertImageIntoChat(view) {
+    if (!view || !view.data_url) return false;
+    const input = findChatInput();
+    if (!input) return false;
+    const isCE = input.getAttribute && input.getAttribute('contenteditable') === 'true';
+    if (!isCE) return false;
+    try {
+      input.focus();
+      try { document.execCommand('insertImage', false, view.data_url); return true; } catch (e) {}
+      return false;
+    } catch (e) { return false; }
+  }
+
   function applyPanelAppearance(panel) {
     try {
       const size = settings.panelSize || 'normal';
@@ -1078,6 +1114,7 @@
           }
           markExecuted(cmd, r.runner || runRunner);
           lastFormatted = formatRunResult(cmd, runRunner, r, mySeq);
+          if (r.view) { try { renderView(panel, r.view); insertImageIntoChat(r.view); } catch (e) {} }
           const okExit = r.exit_code === 0;
           status.className = 'ax-exec-status ' + (okExit ? 'ax-ok' : 'ax-err');
           status.textContent = (okExit ? '✅ exit=0' : '⚠️ exit=' + r.exit_code) + ' #' + mySeq + ' • stdout: ' + (r.stdout || '').length + ' симв. • stderr: ' + (r.stderr || '').length + ' симв.';
