@@ -84,6 +84,12 @@
     </div>
     <button id="testBtn" class="btn">🔄 Проверить подключение</button>
     <div class="desc" style="margin-top:8px">Запуск сервера: <code>python server.py [--port 8765] [--cwd PATH] [--max-output N] [--verbose]</code></div>
+
+    <div class="field" style="margin-top:14px">
+      <label class="title">Защита команд (whitelist)</label>
+      <div id="whitelistInfo" class="desc">Проверка не выполнена — открой попап для ping.</div>
+      <div class="desc">Если сервер запущен с флагом <code>--whitelist FILE</code>, будут выполняться только команды из этого файла (по префиксу). Цепочки и пайпы (<code>;</code>, <code>&amp;&amp;</code>, <code>|</code>) запрещены. Ручной запуск кнопкой ▶ не ограничен.</div>
+    </div>
   </section>
 
   <section class="card">

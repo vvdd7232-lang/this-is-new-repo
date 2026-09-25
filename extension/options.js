@@ -92,6 +92,20 @@ async function load() {
     $('histCount').textContent = n;
   } catch {}
   statusMsg('Настройки загружены. Меняй и жми «Сохранить».', '');
+  try { await testConnection(); } catch (e) {}
+}
+
+function updateWhitelistInfo(info) {
+  const el = document.getElementById('whitelistInfo');
+  if (!el) return;
+  if (!info) { el.textContent = 'Проверка не выполнена.'; return; }
+  if (info.whitelist_on) {
+    el.textContent = '\u2705 Whitelist включён: ' + info.whitelist_size + ' префиксов. Автопилот ограничен списком.';
+    el.style.color = '';
+  } else {
+    el.textContent = '\u26a0\ufe0f Whitelist выключен. Все команды (кроме явно опасных) проходят. Рекомендуется: --whitelist whitelist.txt';
+    el.style.color = '#b45309';
+  }
 }
 
 async function save() {
@@ -132,7 +146,7 @@ async function testConnection() {
   statusMsg('Проверка сервера…', '');
   try {
     const resp = await axApi.runtime.sendMessage({ type: 'AX_PING', serverUrl });
-    if (resp && resp.ok) statusMsg('✅ Сервер на связи: ' + JSON.stringify(resp.info), 'ok');
+    if (resp && resp.ok) { statusMsg('✅ Сервер на связи: ' + JSON.stringify(resp.info), 'ok'); updateWhitelistInfo(resp.info); }
     else statusMsg('❌ Сервер недоступен (' + ((resp && resp.error) || 'нет ответа') + '). Запустите: python server.py', 'err');
   } catch (e) {
     statusMsg('❌ Ошибка: ' + e, 'err');

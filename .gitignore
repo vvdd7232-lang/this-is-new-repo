@@ -12,3 +12,6 @@ Thumbs.db
 *.zip
 dist/
 web-ext-artifacts/
+
+# User whitelist (личный, не в репозиторий)
+whitelist*.txt
