@@ -16,7 +16,12 @@ const DEFAULTS = {
   defaultRunner: 'shell',      // среда по умолчанию (выделенный текст, EXECUTE?)
   showToasts: true,           // всплывающие уведомления-тосты
   defaultCwd: '',               // рабочая папка для команд (пусто = папка сервера)
-  authToken: ''                 // токен доступа (если задан --token на сервере)
+  authToken: '',                // токен доступа (если задан --token на сервере)
+  uiTheme: 'auto',              // auto | light | dark (влияет на панели и options)
+  panelSize: 'normal',          // compact | normal | large
+  collapseAfterRun: false,      // сворачивать вывод после выполнения
+  soundOnComplete: false,       // звук при завершении
+  browserNotify: false          // browser notification если вкладка не в фокусе
 };
 
 const axApi = typeof browser !== 'undefined' ? browser : chrome;

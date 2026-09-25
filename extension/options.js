@@ -35,6 +35,11 @@ const DEFAULTS = {
   showToasts: true,
   defaultCwd: '',
   authToken: '',
+  uiTheme: 'auto',
+  panelSize: 'normal',
+  collapseAfterRun: false,
+  soundOnComplete: false,
+  browserNotify: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -79,6 +84,12 @@ async function load() {
   $('showToasts').checked = d.showToasts !== false;
   $('defaultCwd').value = d.defaultCwd || '';
   $('authToken').value = d.authToken || '';
+  setSeg('uiTheme', d.uiTheme || 'auto');
+  setSeg('panelSize', d.panelSize || 'normal');
+  $('collapseAfterRun').checked = d.collapseAfterRun === true;
+  $('soundOnComplete').checked = d.soundOnComplete === true;
+  $('browserNotify').checked = d.browserNotify === true;
+  applyTheme(d.uiTheme || 'auto');
   updateWarn();
   try {
     const v = 'v' + axApi.runtime.getManifest().version;
@@ -108,6 +119,101 @@ function updateWhitelistInfo(info) {
   }
 }
 
+
+// --- UI helpers ---
+
+function setSeg(id, value) {
+  const seg = document.getElementById(id);
+  if (!seg) return;
+  seg.querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.v === value);
+  });
+  seg._value = value;
+}
+
+function getSeg(id) {
+  const seg = document.getElementById(id);
+  if (!seg) return null;
+  const on = seg.querySelector('button.on');
+  return on ? on.dataset.v : (seg._value || null);
+}
+
+function applyTheme(theme) {
+  const html = document.documentElement;
+  if (!theme || theme === 'auto') html.removeAttribute('data-theme');
+  else html.setAttribute('data-theme', theme);
+}
+
+function markDirty() {
+  const d = document.getElementById('dirtyDot');
+  if (d) d.classList.add('on');
+}
+
+function clearDirty() {
+  const d = document.getElementById('dirtyDot');
+  if (d) d.classList.remove('on');
+}
+
+function bindSeg(id, onChange) {
+  const seg = document.getElementById(id);
+  if (!seg) return;
+  seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || !btn.dataset.v) return;
+    setSeg(id, btn.dataset.v);
+    if (onChange) onChange(btn.dataset.v);
+    markDirty();
+  });
+}
+
+async function exportSettings() {
+  try {
+    const all = await axStorageGet('sync', Object.keys(DEFAULTS));
+    const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ai-execute-settings.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    statusMsg('Экспортировано', 'ok');
+  } catch (e) { statusMsg('Ошибка экспорта: ' + e, 'err'); }
+}
+
+async function importSettings(file) {
+  try {
+    const text = await file.text();
+    const obj = JSON.parse(text);
+    const clean = {};
+    for (const k of Object.keys(DEFAULTS)) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) clean[k] = obj[k];
+    }
+    await axStorageSet('sync', clean);
+    await 
+// --- Init UI (сегменты, экспорт/импорт, dirty) ---
+bindSeg('uiTheme', (v) => applyTheme(v));
+bindSeg('panelSize');
+const _expBtn = document.getElementById('exportBtn');
+if (_expBtn) _expBtn.onclick = exportSettings;
+const _impBtn = document.getElementById('importBtn');
+const _impFile = document.getElementById('importFile');
+if (_impBtn && _impFile) {
+  _impBtn.onclick = () => _impFile.click();
+  _impFile.onchange = (e) => { if (e.target.files[0]) importSettings(e.target.files[0]); };
+}
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id !== 'importFile') markDirty();
+});
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id !== 'importFile') markDirty();
+});
+
+load();
+    statusMsg('Импортировано', 'ok');
+    clearDirty();
+  } catch (e) { statusMsg('Ошибка импорта: ' + e, 'err'); }
+}
+
 async function save() {
   if (!loaded) { statusMsg('Настройки ещё не загружены — подожди секунду и попробуй снова', 'err'); return; }
   let autoInsert = $('autoInsert').checked;
@@ -131,6 +237,7 @@ async function save() {
     authToken: $('authToken').value.trim(),
   });
   updateWarn();
+  clearDirty();
   statusMsg('✅ Настройки сохранены и применены ко всем вкладкам', 'ok');
 }
 

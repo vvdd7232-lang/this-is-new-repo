@@ -195,3 +195,30 @@
     color: #f3f4f6;
   }
 }
+
+/* --- Размеры панелей (panelSize) --- */
+.ax-exec-panel.ax-size-compact { font-size: 12px; padding: 5px 7px; }
+.ax-exec-panel.ax-size-compact .ax-exec-output { font-size: 11px; }
+.ax-exec-panel.ax-size-compact .ax-exec-cmd-preview { font-size: 10px; }
+.ax-exec-panel.ax-size-compact .ax-exec-badge { font-size: 9px; }
+.ax-exec-panel.ax-size-large { font-size: 15px; padding: 10px 12px; }
+.ax-exec-panel.ax-size-large .ax-exec-output { font-size: 13px; }
+.ax-exec-panel.ax-size-large .ax-exec-cmd-preview { font-size: 12px; }
+.ax-exec-panel.ax-size-large .ax-btn { font-size: 13px; padding: 5px 12px; }
+
+/* --- Тема панели (uiTheme, перебивает prefers-color-scheme) --- */
+.ax-exec-panel.ax-theme-light {
+  background: rgba(124, 92, 255, 0.06);
+  color: inherit;
+}
+.ax-exec-panel.ax-theme-dark {
+  background: rgba(124, 92, 255, 0.14);
+  color: #f3f4f6;
+}
+.ax-exec-panel.ax-theme-dark .ax-exec-cmd-preview {
+  background: rgba(255,255,255,0.08);
+}
+
+/* --- Сворачивание вывода после выполнения --- */
+.ax-exec-panel.ax-collapsed .ax-exec-output { display: none !important; }
+.ax-exec-panel.ax-collapsed .ax-exec-after { margin-top: 4px; }
