@@ -222,3 +222,27 @@
 /* --- Сворачивание вывода после выполнения --- */
 .ax-exec-panel.ax-collapsed .ax-exec-output { display: none !important; }
 .ax-exec-panel.ax-collapsed .ax-exec-after { margin-top: 4px; }
+
+/* --- Превью изображения (команда view) --- */
+.ax-view-wrap {
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.05);
+  display: inline-block;
+  max-width: 100%;
+}
+.ax-view-img {
+  display: block;
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ax-view-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+  word-break: break-all;
+}
+.ax-theme-dark .ax-view-wrap { background: rgba(255,255,255,0.08); }

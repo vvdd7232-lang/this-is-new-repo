@@ -10,8 +10,10 @@ AI Execute Runner — локальный сервер выполнения ко�
 Зависимостей нет — только стандартная библиотека.
 """
 import argparse
+import base64
 import hmac
 import json
+import mimetypes
 import os
 import platform
 import re
@@ -250,11 +252,55 @@ def _check_rate():
         return True, 0.0
 
 
+
+# --- view: просмотр изображений ---
+VIEW_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+VIEW_MIMES = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.avif': 'image/avif',
+}
+
+def _handle_view(raw_path):
+    """Читает изображение и возвращает data URL. Shell не выполняет."""
+    p = (raw_path or '').strip().strip('"').strip("'")
+    if not p:
+        return {'ok': False, 'executed': False, 'error': 'view: empty path'}
+    p = os.path.expanduser(p)
+    if not os.path.isabs(p):
+        p = os.path.abspath(p)
+    if not os.path.exists(p):
+        return {'ok': False, 'executed': False, 'error': 'view: file not found: ' + p}
+    if not os.path.isfile(p):
+        return {'ok': False, 'executed': False, 'error': 'view: not a file: ' + p}
+    ext = os.path.splitext(p)[1].lower()
+    mime = VIEW_MIMES.get(ext)
+    if not mime:
+        mime = mimetypes.guess_type(p)[0] or ''
+    if not mime.startswith('image/'):
+        return {'ok': False, 'executed': False, 'error': 'view: not an image (ext=' + ext + ')'}
+    size = os.path.getsize(p)
+    if size > VIEW_MAX_BYTES:
+        return {'ok': False, 'executed': False, 'error': 'view: file too large'}
+    try:
+        with open(p, 'rb') as fh:
+            data = fh.read()
+    except OSError as e:
+        return {'ok': False, 'executed': False, 'error': 'view: cannot read: ' + str(e)}
+    b64 = base64.b64encode(data).decode('ascii')
+    data_url = 'data:' + mime + ';base64,' + b64
+    return {'ok': True, 'executed': True, 'view': {
+        'path': p, 'size': size, 'mime': mime, 'data_url': data_url,
+    }}
+
 def execute(payload):
     command = payload.get('command') or ''
     if not isinstance(command, str):
         return {'ok': False, 'executed': False, 'error': 'command must be a string'}
     command = command.strip()
+    # view: спец-команда просмотра изображения (до whitelist)
+    if command.lower().startswith("view "):
+        return _handle_view(command[5:])
     # whitelist: блокируем неразрешённые команды (если включён)
     ok_wl, wl_reason = _check_whitelist(command)
     if not ok_wl:
