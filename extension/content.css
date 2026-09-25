@@ -1,12 +1,12 @@
 /* AI Execute Runner — стили панели под execute-блоками */
 
 .ax-exec-panel {
-  margin: 8px 0 12px 0;
-  border: 1px solid #7c5cff55;
-  border-left: 4px solid #7c5cff;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: rgba(124, 92, 255, 0.07);
+  margin: 6px 0 8px 0;
+  border: 1px solid #7c5cff44;
+  border-left: 3px solid #7c5cff;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: rgba(124, 92, 255, 0.06);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.45;
@@ -18,58 +18,63 @@
 .ax-exec-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  font-weight: 600;
 }
 .ax-exec-badge {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 1px 7px;
   border-radius: 20px;
   background: #7c5cff;
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.3px;
-}
-.ax-exec-runner {
-  font-size: 11px;
-  opacity: 0.75;
-  font-weight: 500;
+  white-space: nowrap;
 }
 .ax-exec-cmd-preview {
-  margin: 6px 0;
-  padding: 6px 8px;
+  margin: 5px 0 0 0;
+  padding: 4px 7px;
   background: rgba(0,0,0,0.06);
   border-radius: 6px;
   font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.ax-exec-cmd-preview.expanded {
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 90px;
+  max-height: 120px;
   overflow: auto;
+  cursor: pointer;
 }
-.ax-exec-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.ax-exec-after { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .ax-btn {
   cursor: pointer;
   border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
+.ax-btn-icon { padding: 4px 8px; }
 .ax-btn-run { background: #16a34a; color: #fff; }
 .ax-btn-run:hover { background: #15803d; }
 .ax-btn-run:disabled { opacity: 0.6; cursor: wait; }
 .ax-btn-copy { background: transparent; border-color: #999; color: inherit; }
 .ax-btn-insert { background: #7c5cff; color: #fff; }
 .ax-btn-insert:hover { background: #6a4de0; }
-.ax-exec-status { margin-top: 8px; font-size: 12px; }
+.ax-exec-status { margin-top: 6px; font-size: 12px; }
+.ax-exec-status:empty { display: none; }
 .ax-exec-status.ax-running { color: #b45309; }
 .ax-exec-status.ax-ok { color: #16a34a; }
 .ax-exec-status.ax-err { color: #dc2626; }
 .ax-exec-output {
-  margin-top: 8px;
+  margin-top: 6px;
   padding: 8px;
   border-radius: 6px;
   background: #0d1117;
@@ -121,13 +126,12 @@
 
 /* Выбор среды выполнения */
 .ax-runner-select {
-  font-size: 12px;
-  padding: 2px 6px;
+  font-size: 11px;
+  padding: 1px 4px;
   border-radius: 6px;
   border: 1px solid #999;
   background: transparent;
   color: inherit;
-  margin-left: 4px;
 }
 .ax-runner-row {
   margin: 8px 0 2px 0;

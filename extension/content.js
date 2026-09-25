@@ -775,17 +775,15 @@
 
     panel.innerHTML =
       '<div class="ax-exec-header"><span class="ax-exec-badge">⚡ EXECUTE</span>' +
-      '<span class="ax-exec-runner">блок <b></b></span></div>' +
+      '<select class="ax-runner-select" title="Среда выполнения (можно переключить)"></select>' +
+      '<button class="ax-btn ax-btn-run">▶ Выполнить</button>' +
+      '<button class="ax-btn ax-btn-copy ax-btn-icon" title="Скопировать команду">📋</button></div>' +
       '<div class="ax-exec-cmd-preview"></div>' +
-      '<div class="ax-exec-btns">' +
-        '<button class="ax-btn ax-btn-run">▶ Выполнить</button>' +
-        '<button class="ax-btn ax-btn-copy">📋 Команда</button>' +
-      '</div>' +
       '<div class="ax-exec-status"></div>' +
       '<div class="ax-exec-output" style="display:none"></div>' +
-      '<div class="ax-exec-btns ax-exec-after" style="display:none">' +
+      '<div class="ax-exec-after" style="display:none">' +
         '<button class="ax-btn ax-btn-insert">📥 В чат</button>' +
-        '<button class="ax-btn ax-btn-copy ax-btn-copy-out">📋 Вывод</button>' +
+        '<button class="ax-btn ax-btn-copy ax-btn-copy-out ax-btn-icon" title="Скопировать вывод">📋</button>' +
       '</div>';
 
     if (flags.weak) {
@@ -797,18 +795,9 @@
         : '🔍 находка нестрогая (EXECUTE?) — только вручную';
       panel.querySelector('.ax-exec-header').appendChild(note);
     }
-    panel.querySelector('.ax-exec-runner b').textContent = info.lang;
-    // Выбор среды выполнения прямо на панели
-    const runnerLabel = document.createElement('span');
-    runnerLabel.className = 'ax-exec-runner';
-    runnerLabel.textContent = 'среда: ';
-    const runnerSelect = document.createElement('select');
-    runnerSelect.className = 'ax-runner-select';
-    runnerSelect.title = 'Среда выполнения (можно переключить)';
+    const runnerSelect = panel.querySelector('.ax-runner-select');
     fillRunnerSelect(runnerSelect, memGet(command) || info.runner);
     runnerSelect.onchange = () => memSet(command, runnerSelect.value);
-    runnerLabel.appendChild(runnerSelect);
-    panel.querySelector('.ax-exec-header').appendChild(runnerLabel);
     function panelRunner() {
       try { return (runnerSelect && runnerSelect.value) || info.runner; }
       catch { return info.runner; }
@@ -825,7 +814,10 @@
       } catch {}
       return panelRunner();
     }
-    panel.querySelector('.ax-exec-cmd-preview').textContent = previewText(command);
+    let previewExpanded = false;
+    let previewCmd = command;
+    renderPreview();
+    panel.querySelector('.ax-exec-cmd-preview').onclick = () => { previewExpanded = !previewExpanded; renderPreview(); };
 
     const btnRun = panel.querySelector('.ax-btn-run');
     const btnCopy = panel.querySelector('.ax-btn-copy');
@@ -834,9 +826,18 @@
     const after = panel.querySelector('.ax-exec-after');
     let lastFormatted = '';
 
-    function previewText(cmd) {
-      const t = cmd.split('\n').length > 3 ? cmd.split('\n').slice(0, 3).join('\n') + '\n…' : cmd;
-      return t || '(пустая команда)';
+    function renderPreview() {
+      const box = panel.querySelector('.ax-exec-cmd-preview');
+      if (previewExpanded) {
+        box.textContent = '▾ ' + (previewCmd || '(пустая команда)');
+        box.classList.add('expanded');
+        box.title = 'Свернуть';
+      } else {
+        const first = (previewCmd || '').split('\n')[0] || '(пустая команда)';
+        box.textContent = '▸ ' + first + ((previewCmd || '').includes('\n') ? ' …' : '');
+        box.classList.remove('expanded');
+        box.title = 'Показать команду полностью';
+      }
     }
 
     btnCopy.onclick = async () => {
@@ -845,7 +846,8 @@
     };
 
     function refreshPreview(cmd) {
-      panel.querySelector('.ax-exec-cmd-preview').textContent = previewText(cmd);
+      previewCmd = cmd;
+      renderPreview();
     }
 
     async function doRun(cmdOverride, isAuto, onDone) {
@@ -964,7 +966,7 @@
       cancelBtn.className = 'ax-btn ax-btn-copy ax-btn-cancel-auto';
       cancelBtn.textContent = '✋ Отмена авто';
       cancelBtn.onclick = () => { stopAutoTimer('Автозапуск отменён — нажмите ▶ вручную.'); dequeueAuto(autoHandle); };
-      panel.querySelector('.ax-exec-btns').appendChild(cancelBtn);
+      panel.querySelector('.ax-exec-header').appendChild(cancelBtn);
     }
 
     function showQueued(i) {
@@ -1116,7 +1118,7 @@
           startAuto();
         } catch { toast('Не удалось сохранить настройку'); }
       };
-      panel.querySelector('.ax-exec-btns').appendChild(q);
+      panel.querySelector('.ax-exec-header').appendChild(q);
     })();
 
     return panel;
