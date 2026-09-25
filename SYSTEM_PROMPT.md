@@ -62,7 +62,7 @@ pwd && ls -la
 ```execute
 view C:\Users\me\screenshot.png
 ```
-  Сервер вернёт картинку как data URL, расширение покажет превью под панелью и вставит её в поле ввода чата (работает в Claude и ChatGPT — там contenteditable; в Arena/Gemini вставится только текстом). Поддерживаются png/jpg/jpeg/gif/webp/bmp/svg/ico/avif до 10 MB. Не пиши python/PIL для просмотра — просто view.
+  Сервер вернёт картинку как data URL, расширение покажет превью под панелью и вставит её в поле ввода чата (работает в DeepSeek, ChatGPT, Claude, Arena — через скрытый input[type=file] или paste-событие). Поддерживаются png/jpg/jpeg/gif/webp/bmp/svg/ico/avif до 10 MB. Не пиши python/PIL для просмотра — просто view.
 - В каждом [LOCAL EXEC RESULT] есть seq, cwd, executed, dur и счётчики байт — проверяй их перед выводом "команда ничего не дала". Если пришёл status=running — команда выполняется, дождись status=done с тем же seq.
 - Я нажму "Выполнить" и пришлю результат в формате:
 [LOCAL EXEC RESULT] seq=<N> status=done runner=shell exit=<код>

@@ -1,0 +1,15 @@
+{
+  "name": "ai-execute-extension-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Тесты детектора поля ввода чата и вставки картинки (view) — extension/content.js",
+  "main": "view-insert.test.js",
+  "scripts": {
+    "test": "node view-insert.test.js"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "jsdom": "^30.1.1"
+  }
+}

@@ -246,3 +246,11 @@
   word-break: break-all;
 }
 .ax-theme-dark .ax-view-wrap { background: rgba(255,255,255,0.08); }
+.ax-btn-view-retry {
+  display: block;
+  margin-top: 6px;
+  background: #7c5cff;
+  color: #fff;
+  border-color: #7c5cff;
+}
+.ax-btn-view-retry:hover { background: #6a4de0; }
