@@ -34,6 +34,7 @@ const DEFAULTS = {
   maxOutputChars: 32000,
   showToasts: true,
   defaultCwd: '',
+  authToken: '',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -77,6 +78,7 @@ async function load() {
   $('maxOutputChars').value = d.maxOutputChars != null ? d.maxOutputChars : DEFAULTS.maxOutputChars;
   $('showToasts').checked = d.showToasts !== false;
   $('defaultCwd').value = d.defaultCwd || '';
+  $('authToken').value = d.authToken || '';
   updateWarn();
   try {
     const v = 'v' + axApi.runtime.getManifest().version;
@@ -112,6 +114,7 @@ async function save() {
     maxOutputChars: clampNum($('maxOutputChars').value, 0, 1000000, 32000),
     showToasts: $('showToasts').checked,
     defaultCwd: $('defaultCwd').value.trim(),
+    authToken: $('authToken').value.trim(),
   });
   updateWarn();
   statusMsg('✅ Настройки сохранены и применены ко всем вкладкам', 'ok');
