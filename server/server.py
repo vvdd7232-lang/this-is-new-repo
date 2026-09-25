@@ -14,6 +14,7 @@ import hmac
 import json
 import os
 import platform
+import re
 import secrets
 import subprocess
 import sys
@@ -29,6 +30,8 @@ DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
 LOG_FILE = None  # путь к файлу логов (None = только консоль)
 RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
+WHITELIST = None  # None = выключен; frozenset префиксов (lowercase) = включён
+_WHITELIST_META = re.compile(r'[;&|<>`]|\$\(')  # shell-метасимволы
 _rate_lock = threading.Lock()
 _rate_times = []  # timestamps последних запусков (для rate limit)
 VERBOSE = False  # True => логировать вообще всё, включая /ping
@@ -109,6 +112,113 @@ def _clip(text):
     return data[:MAX_OUTPUT].decode('utf-8', errors='ignore'), True
 
 
+DEFAULT_WHITELIST_CONTENT = """# AI Execute Runner - whitelist
+#
+# Одна команда/префикс на строку. Строки, начинающиеся с #, игнорируются.
+# Команда разрешена, если она РАВНА префиксу или начинается с "префикс + пробел".
+# Пример: "ls" разрешит "ls", "ls -la", "ls /tmp", но НЕ "lsfoo".
+#
+# В whitelist-режиме ЗАПРЕЩЕНЫ shell-метасимволы: ; & | < > ` $(
+# Если нужны пайпы/цепочки - запусти сервер без --whitelist или выполни вручную.
+#
+# Регистр не важен на Windows, важен на Linux/Mac (сравнение lowercase).
+
+# --- файловая система: чтение ---
+ls
+dir
+cat
+type
+head
+tail
+tree
+pwd
+
+# --- навигация ---
+cd
+
+# --- текст ---
+echo
+grep
+find
+where
+which
+
+# --- git: только чтение ---
+git status
+git log
+git diff
+git branch
+git show
+
+# --- языки: интерпретаторы ---
+python
+python3
+node
+
+# --- пакетные менеджеры: только инфо ---
+npm list
+npm test
+npm run
+pip list
+pip show
+
+# --- система: инфо ---
+whoami
+hostname
+date
+ver
+uname
+ipconfig
+ifconfig
+
+# --- PowerShell: чтение ---
+Get-Content
+Get-ChildItem
+Get-Process
+Get-Service
+Get-Location
+"""
+
+
+def _load_whitelist(path):
+    """Читает файл whitelist. Возвращает frozenset префиксов в lowercase.
+    Если файла нет - создаёт с дефолтным содержимым и читает его же."""
+    if not os.path.exists(path):
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(DEFAULT_WHITELIST_CONTENT)
+            _log(f'[whitelist] создан файл по умолчанию: {path}')
+        except OSError as e:
+            raise RuntimeError(f'cannot create whitelist: {e}')
+    prefixes = set()
+    with open(path, 'r', encoding='utf-8') as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith('#'):
+                continue
+            prefixes.add(line.lower())
+    return frozenset(prefixes)
+
+
+def _check_whitelist(cmd):
+    """Возвращает (ok: bool, reason: str).
+    True - команда разрешена (или whitelist выключен)."""
+    if WHITELIST is None:
+        return True, ''
+    c = (cmd or '').strip()
+    if not c:
+        return False, 'empty command'
+    if _WHITELIST_META.search(c):
+        return False, 'shell metacharacters (; & | < > ` $() not allowed in whitelist mode'
+    cl = c.lower()
+    for prefix in WHITELIST:
+        if cl == prefix or cl.startswith(prefix + ' '):
+            return True, ''
+    # Первое слово для понятной ошибки
+    first = cl.split()[0] if cl.split() else '?'
+    return False, f'command not in whitelist (starts with: {first})'
+
+
 def _log(msg):
     """Печатает в stdout и (если задан LOG_FILE) пишет с timestamp в файл."""
     try:
@@ -145,6 +255,11 @@ def execute(payload):
     if not isinstance(command, str):
         return {'ok': False, 'executed': False, 'error': 'command must be a string'}
     command = command.strip()
+    # whitelist: блокируем неразрешённые команды (если включён)
+    ok_wl, wl_reason = _check_whitelist(command)
+    if not ok_wl:
+        return {'ok': False, 'executed': False, 'blocked': True,
+                'error': f'whitelist: {wl_reason}', 'command': command}
     runner = str(payload.get('runner') or 'shell').strip().lower()
     timeout = payload.get('timeout') or DEFAULT_TIMEOUT
     cwd_raw = str(payload.get('cwd') or '').strip()
@@ -289,6 +404,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
                         'cwd': os.getcwd(), 'python': sys.version.split()[0],
                         'auth_required': bool(AUTH_TOKEN),
+                        'whitelist_on': WHITELIST is not None,
+                        'whitelist_size': len(WHITELIST) if WHITELIST else 0,
                         'auth_ok': (None if not AUTH_TOKEN else hmac.compare_digest(
                             (self.headers.get('X-Auth-Token') or '').strip(), AUTH_TOKEN))})
         else:
@@ -378,6 +495,8 @@ def main():
                     help='файл для логов (по умолчанию — только консоль)')
     ap.add_argument('--rate-limit', type=int, default=0,
                     help='макс. команд в минуту (0 = без лимита)')
+    ap.add_argument('--whitelist', default=None, metavar='FILE',
+                    help='файл со списком разрешённых команд (включает whitelist-режим)')
     args = ap.parse_args()
     VERBOSE = args.verbose
     MAX_OUTPUT = args.max_output if args.max_output >= 0 else 1_000_000
@@ -391,6 +510,13 @@ def main():
     global LOG_FILE, RATE_LIMIT
     LOG_FILE = args.log.strip() if args.log else None
     RATE_LIMIT = max(0, args.rate_limit)
+    global WHITELIST
+    if args.whitelist:
+        try:
+            WHITELIST = _load_whitelist(os.path.expanduser(args.whitelist.strip("'\"")))
+        except (OSError, RuntimeError) as e:
+            print(f'ошибка: не могу прочитать whitelist: {e}')
+            sys.exit(1)
     # Стартовый cwd: запуск из системной папки (System32 через ярлык/автозапуск)
     # ломает все относительные пути — в этом случае уходим в домашнюю папку.
     if args.cwd:
@@ -419,6 +545,10 @@ def main():
         _log('  Скопируйте его в настройки расширения (поле Токен)')
     else:
         _log('  [!] Токен-аутентификация отключена (--no-token)')
+    if WHITELIST is not None:
+        _log(f'  Whitelist: ВКЛЮЧЁН ({len(WHITELIST)} префиксов из {args.whitelist})')
+    else:
+        _log('  Whitelist: выключен (--whitelist FILE чтобы включить)')
     _log('  Остановка: Ctrl+C')
     _log('=' * 60)
     try:

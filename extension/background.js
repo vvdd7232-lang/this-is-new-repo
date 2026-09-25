@@ -68,7 +68,9 @@ async function runCommand({ command, runner, timeout, cwd }) {
       signal: ctrl.signal
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    // blocked=true (whitelist) - это НЕ ошибка транспорта, пропускаем дальше,
+    // чтобы content.js мог показать статус blocked вместо error
+    if (!res.ok && !data.blocked) throw new Error(data.error || ('HTTP ' + res.status));
     return data;
   } finally {
     clearTimeout(t);

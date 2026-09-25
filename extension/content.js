@@ -859,6 +859,10 @@
           return;
         }
         const r = resp.result || {};
+        if (r.blocked) {
+          toast('\u26d4 Whitelist: ' + (r.error || 'команда не разрешена'));
+          return;
+        }
         markExecuted(command, r.runner || runRunner);
         const formatted = formatRunResult(command, runRunner, r, mySeq);
         showResultModal(formatted, r.exit_code === 0);
@@ -1014,6 +1018,15 @@
           }
           autoHandle.finish();
           const r = resp.result || {};
+          // whitelist на сервере заблокировал команду - не ошибка, но и не выполнено
+          if (r.blocked) {
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + cmd + '\n' + (r.error || '') + '\n');
+            status.className = 'ax-exec-status ax-err';
+            status.textContent = '\u26d4 Whitelist: ' + (r.error || 'команда не разрешена');
+            toast('\u26d4 ' + (r.error || 'Заблокировано whitelist'));
+            fin();
+            return;
+          }
           markExecuted(cmd, r.runner || runRunner);
           lastFormatted = formatRunResult(cmd, runRunner, r, mySeq);
           const okExit = r.exit_code === 0;
