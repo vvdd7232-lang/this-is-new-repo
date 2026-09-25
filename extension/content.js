@@ -20,8 +20,10 @@
   let scanTimer = null;
   let deadNotified = false;
   function ctxAlive() {
-    try { return !!(window.chrome && chrome.runtime && chrome.runtime.id); }
-    catch { return false; }
+    try {
+      const b = typeof browser !== 'undefined' ? browser.runtime : (window.chrome && chrome.runtime);
+      return !!(b && b.id);
+    } catch { return false; }
   }
   function safeSend(msg, cb) {
     if (!ctxAlive()) {
@@ -30,12 +32,22 @@
       return;
     }
     try {
-      chrome.runtime.sendMessage(msg, (resp) => {
-        try {
-          if (chrome.runtime.lastError) { if (cb) cb(null); return; }
-        } catch {}
-        if (cb) { try { cb(resp); } catch (e) { console.warn('[AX]', e); } }
-      });
+      const b = typeof browser !== 'undefined' ? browser : chrome;
+      const pr = b.runtime.sendMessage(msg);
+      if (pr && pr.then) {
+        pr.then((resp) => {
+          if (cb) { try { cb(resp); } catch (e) { console.warn('[AX]', e); } }
+        }).catch(() => {
+          if (cb) { try { cb(null); } catch {} }
+        });
+      } else {
+        chrome.runtime.sendMessage(msg, (resp) => {
+          try {
+            if (chrome.runtime.lastError) { if (cb) cb(null); return; }
+          } catch {}
+          if (cb) { try { cb(resp); } catch (e) { console.warn('[AX]', e); } }
+        });
+      }
     } catch (e) {
       if (cb) { try { cb(null); } catch {} }
       handleDeadContext();
@@ -119,7 +131,10 @@
     }
   }
   function saveExecHistory() {
-    try { chrome.storage.local.set({ [EXEC_HIST_KEY]: Object.fromEntries(execHistory) }); } catch {}
+    try {
+      const b = typeof browser !== 'undefined' ? browser : chrome;
+      b.storage.local.set({ [EXEC_HIST_KEY]: Object.fromEntries(execHistory) });
+    } catch {}
   }
   function markExecuted(cmd, runner) {
     execHistory.delete(autoRunKey(cmd, runner));
@@ -138,7 +153,12 @@
     if (sec < 172800) return Math.round(sec / 3600) + 'ч';
     return Math.round(sec / 86400) + 'д';
   }
-  try { chrome.storage.local.get([EXEC_HIST_KEY], (d) => loadExecHistory(d && d[EXEC_HIST_KEY])); } catch {}
+  try {
+    const b = typeof browser !== 'undefined' ? browser : chrome;
+    const pr = b.storage.local.get([EXEC_HIST_KEY]);
+    if (pr && pr.then) pr.then((d) => loadExecHistory(d && d[EXEC_HIST_KEY]));
+    else chrome.storage.local.get([EXEC_HIST_KEY], (d) => loadExecHistory(d && d[EXEC_HIST_KEY]));
+  } catch {}
   const livePanels = [];         // { started, done, start(), finish() }
   let foundToastShown = false;
   function applyAutoToPending() {
@@ -211,7 +231,7 @@
     applyAutoToPending();
   });
   try {
-  chrome.storage.onChanged.addListener((changes, area) => {
+  (typeof browser !== 'undefined' ? browser : chrome).storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       if (changes[EXEC_HIST_KEY]) loadExecHistory(changes[EXEC_HIST_KEY].newValue);
       return;
@@ -476,26 +496,35 @@
     runnerMemory.delete(memKey(code));
     runnerMemory.set(memKey(code), runner);
     while (runnerMemory.size > 100) runnerMemory.delete(runnerMemory.keys().next().value);
-    try { chrome.storage.local.set({ [RUNNER_MEM_KEY]: Object.fromEntries(runnerMemory) }); } catch {}
+    try {
+      const b = typeof browser !== 'undefined' ? browser : chrome;
+      b.storage.local.set({ [RUNNER_MEM_KEY]: Object.fromEntries(runnerMemory) });
+    } catch {}
   }
   try {
-    chrome.storage.local.get([RUNNER_MEM_KEY], (d) => {
+    const b = typeof browser !== 'undefined' ? browser : chrome;
+    const onMemLoaded = (d) => {
       const o = d && d[RUNNER_MEM_KEY];
       let pruned = false;
       if (o) for (const [k, v] of Object.entries(o)) {
         const r = runnerValid(v);
         if (!r) continue;
-        // Чистим отравленные записи: shell для кода, который сниффер уверенно опознаёт
-        // (записались авто-подтверждениями при сломанном детекте, а не выбором пользователя)
         if (r === 'shell') {
-          try { if (sniffRunner(k)) { pruned = true; continue; } } catch {}
+          try {
+            if (sniffRunner(k) || sniffRunner(k.replace(/^(#|\/\/)\s*\S+\s+/, ''))) {
+              pruned = true; continue;
+            }
+          } catch {}
         }
         runnerMemory.set(k, r);
       }
       if (pruned) {
-        try { chrome.storage.local.set({ [RUNNER_MEM_KEY]: Object.fromEntries(runnerMemory) }); } catch {}
+        try { b.storage.local.set({ [RUNNER_MEM_KEY]: Object.fromEntries(runnerMemory) }); } catch {}
       }
-    });
+    };
+    const pr = b.storage.local.get([RUNNER_MEM_KEY]);
+    if (pr && pr.then) pr.then(onMemLoaded);
+    else chrome.storage.local.get([RUNNER_MEM_KEY], onMemLoaded);
   } catch {}
 
   function confirmModal({ lang, runner, command }) {
@@ -506,17 +535,26 @@
       backdrop.innerHTML =
         '<div class="ax-modal">' +
           '<h3>⚡ Выполнить команду локально?</h3>' +
-          '<div style="font-size:13px;opacity:.8">Блок <b>' + escapeHtml(lang) + '</b> на вашем ПК (сервер ' + escapeHtml(settings.serverUrl) + ').</div>' +
+          '<div class="ax-modal-desc" style="font-size:13px;opacity:.8"></div>' +
           '<div class="ax-runner-row">Среда выполнения: <select class="ax-runner-select ax-modal-select"></select></div>' +
           '<pre></pre>' +
-          (dangerous
-            ? '<div class="ax-warn ax-danger">⛔ Команда похожа на <b>опасную</b> (удаление / форматирование / sudo / pipe в shell). Выполняйте только если на 100% понимаете, что она делает.</div>'
-            : '<div class="ax-warn">⚠️ Команда выполнится <b>на вашем компьютере</b> с вашими правами. Проверьте её перед запуском.</div>') +
+          '<div class="ax-modal-warn"></div>' +
           '<div class="ax-modal-row">' +
             '<button class="ax-btn ax-btn-cancel">Отмена</button>' +
-            '<button class="ax-btn ax-btn-confirm' + (dangerous ? '' : ' safe') + '">▶ Выполнить</button>' +
+            '<button class="ax-btn ax-btn-confirm">▶ Выполнить</button>' +
           '</div>' +
         '</div>';
+      backdrop.querySelector('.ax-modal-desc').textContent = 'Блок ' + lang + ' на вашем ПК (сервер ' + settings.serverUrl + ').';
+      const warnBox = backdrop.querySelector('.ax-modal-warn');
+      if (dangerous) {
+        warnBox.className = 'ax-warn ax-danger';
+        warnBox.textContent = '⛔ Команда похожа на опасную (удаление / форматирование / sudo / pipe в shell). Выполняйте только если на 100% понимаете, что она делает.';
+      } else {
+        warnBox.className = 'ax-warn';
+        warnBox.textContent = '⚠️ Команда выполнится на вашем компьютере с вашими правами. Проверьте её перед запуском.';
+      }
+      const confirmBtn = backdrop.querySelector('.ax-btn-confirm');
+      if (!dangerous) confirmBtn.classList.add('safe');
       backdrop.querySelector('pre').textContent = command;
       const sel = backdrop.querySelector('.ax-modal-select');
       fillRunnerSelect(sel, runner);
@@ -759,7 +797,7 @@
     backdrop.className = 'ax-modal-backdrop';
     backdrop.innerHTML =
       '<div class="ax-modal">' +
-        '<h3>' + (okExit ? '✅ Команда выполнена (exit=0)' : '⚠️ Команда завершилась с ошибкой') + '</h3>' +
+        '<h3 class="ax-modal-title"></h3>' +
         '<pre></pre>' +
         '<div class="ax-modal-row">' +
           '<button class="ax-btn ax-btn-copy">📋 Копировать</button>' +
@@ -767,6 +805,7 @@
           '<button class="ax-btn ax-btn-cancel">Закрыть</button>' +
         '</div>' +
       '</div>';
+    backdrop.querySelector('.ax-modal-title').textContent = okExit ? '✅ Команда выполнена (exit=0)' : '⚠️ Команда завершилась с ошибкой';
     backdrop.querySelector('pre').textContent = formatted;
     const onKey = (e) => { if (e.key === 'Escape') cleanup(); };
     const cleanup = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
@@ -821,7 +860,7 @@
   }
 
   try {
-  chrome.runtime.onMessage.addListener((msg) => {
+  (typeof browser !== 'undefined' ? browser : chrome).runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'AX_RUN_SELECTION') runArbitrary(msg.text, settings.defaultRunner || 'shell');
   });
   } catch {}
@@ -1173,7 +1212,8 @@
           if (!ctxAlive()) { handleDeadContext(); return; }
           const patch = { autoExecute: true, autoInsert: true, autoSend: true };
           if (flags.weak) patch.autoWeak = true;
-          await chrome.storage.sync.set(patch);
+          const b = typeof browser !== 'undefined' ? browser : chrome;
+          await (b.storage.sync.set ? b.storage.sync.set(patch) : new Promise((res) => chrome.storage.sync.set(patch, res)));
           Object.assign(settings, patch);
           const note = panel.querySelector('.ax-exec-header div');
           if (note && flags.weak) note.textContent = '🔍 находка нестрогая (EXECUTE?) — автозапуск разрешён';

@@ -23,9 +23,10 @@
 
 ```
 ai-execute-extension/
-├── extension/            ← расширение для Chrome/Edge
-│   ├── manifest.json
-│   ├── background.js     ← мост к локальному серверу
+├── extension/            ← расширение для Firefox (и Chrome/Edge)
+│   ├── manifest.json     ← манифест Firefox MV3
+│   ├── manifest.chrome.json ← манифест для Chrome/Edge (service_worker)
+│   ├── background.js     ← мост к локальному серверу (Firefox + Chrome)
 │   ├── content.js        ← ищет execute-блоки, кнопки, вставка в чат
 │   ├── content.css
 │   ├── popup.html / popup.js  ← быстрые настройки + проверка сервера
@@ -72,12 +73,18 @@ http://127.0.0.1:8765
 
 > Сервер слушает **только 127.0.0.1** — доступен лишь с твоего ПК, из интернета к нему не достучаться.
 
-### Шаг 2. Установи расширение в Chrome / Edge
+### Шаг 2. Установи расширение в Firefox (основной браузер)
 
-1. Открой `chrome://extensions` (в Edge: `edge://extensions`)
-2. Включи **«Режим разработчика»** (тумблер справа вверху)
-3. Нажми **«Загрузить распакованное расширение»** → выбери папку `extension/`
-4. Закрепи иконку ⚡ на панели
+1. Открой в Firefox адрес `about:debugging#/runtime/this-firefox`
+2. Нажми **«Загрузить временное дополнение…»** (Load Temporary Add-on…)
+3. Выбери файл `manifest.json` в папке `extension/` (или архив `ai-execute-extension.zip`)
+4. Готово! Иконка ⚡ появится на панели инструментов
+
+> 💡 **Для Chrome / Edge:** в папке `extension/` лежит готовый `manifest.chrome.json`. Чтобы запустить в Chrome, замени `manifest.json`:
+> ```bash
+> cp extension/manifest.chrome.json extension/manifest.json
+> ```
+> И загрузи распакованное расширение через `chrome://extensions` (включив «Режим разработчика»).
 
 ### Шаг 3. Проверь связку
 

@@ -1,3 +1,22 @@
+const axApi = typeof browser !== 'undefined' ? browser : chrome;
+
+async function axStorageGet(area, keys) {
+  if (typeof browser !== 'undefined' && browser.storage && browser.storage[area]) {
+    return await browser.storage[area].get(keys);
+  }
+  return new Promise((resolve) => {
+    chrome.storage[area].get(keys, (res) => resolve(res || {}));
+  });
+}
+
+async function axStorageSet(area, items) {
+  if (typeof browser !== 'undefined' && browser.storage && browser.storage[area]) {
+    return await browser.storage[area].set(items);
+  }
+  return new Promise((resolve) => {
+    chrome.storage[area].set(items, () => resolve());
+  });
+}
 // Страница настроек AI Execute Runner (все параметры в одном месте)
 
 const DEFAULTS = {
@@ -39,7 +58,7 @@ function clampNum(v, lo, hi, fb) {
 async function load() {
   let d;
   try {
-    d = await chrome.storage.sync.get(Object.keys(DEFAULTS));
+    d = await axStorageGet('sync', Object.keys(DEFAULTS));
   } catch {
     statusMsg('❌ Не удалось прочитать настройки (расширение обновляется? закрой страницу и открой заново)', 'err');
     return;
@@ -60,13 +79,13 @@ async function load() {
   $('defaultCwd').value = d.defaultCwd || '';
   updateWarn();
   try {
-    const v = 'v' + chrome.runtime.getManifest().version;
+    const v = 'v' + axApi.runtime.getManifest().version;
     $('ver').textContent = v;
     $('ver2').textContent = v;
   } catch {}
   loaded = true;
   try {
-    const h = await chrome.storage.local.get(['axExecutedHistory']);
+    const h = await axStorageGet('local', ['axExecutedHistory']);
     const n = h && h.axExecutedHistory ? Object.keys(h.axExecutedHistory).length : 0;
     $('histCount').textContent = n;
   } catch {}
@@ -78,7 +97,7 @@ async function save() {
   let autoInsert = $('autoInsert').checked;
   const autoSend = $('autoSend').checked;
   if (autoSend && !autoInsert) { autoInsert = true; $('autoInsert').checked = true; }
-  await chrome.storage.sync.set({
+  await axStorageSet('sync', {
     serverUrl: $('serverUrl').value.trim() || DEFAULTS.serverUrl,
     timeout: clampNum($('timeout').value, 2, 600, 30),
     requireConfirm: $('requireConfirm').checked,
@@ -100,7 +119,7 @@ async function save() {
 
 async function resetAll() {
   if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
-  await chrome.storage.sync.set({ ...DEFAULTS });
+  await axStorageSet('sync', { ...DEFAULTS });
   await load();
   statusMsg('↩️ Настройки сброшены к умолчанию', '');
 }
@@ -109,7 +128,7 @@ async function testConnection() {
   const serverUrl = $('serverUrl').value.trim() || DEFAULTS.serverUrl;
   statusMsg('Проверка сервера…', '');
   try {
-    const resp = await chrome.runtime.sendMessage({ type: 'AX_PING', serverUrl });
+    const resp = await axApi.runtime.sendMessage({ type: 'AX_PING', serverUrl });
     if (resp && resp.ok) statusMsg('✅ Сервер на связи: ' + JSON.stringify(resp.info), 'ok');
     else statusMsg('❌ Сервер недоступен (' + ((resp && resp.error) || 'нет ответа') + '). Запустите: python server.py', 'err');
   } catch (e) {
@@ -148,7 +167,11 @@ $('testBtn').onclick = testConnection;
 $('copyPrompt').onclick = copyPrompt;
 $('clearHistory').onclick = async () => {
   try {
-    await chrome.storage.local.remove(['axExecutedHistory']);
+    if (typeof browser !== 'undefined' && browser.storage && browser.storage.local) {
+      await browser.storage.local.remove(['axExecutedHistory']);
+    } else {
+      await new Promise((res) => chrome.storage.local.remove(['axExecutedHistory'], res));
+    }
     $('histCount').textContent = '0';
     statusMsg('🗑 История выполненных очищена — повторы снова будут выполняться автоматически', 'ok');
   } catch {

@@ -18,9 +18,18 @@ const DEFAULTS = {
   defaultCwd: ''                // рабочая папка для команд (пусто = папка сервера)
 };
 
+const axApi = typeof browser !== 'undefined' ? browser : chrome;
+
 async function getSettings() {
-  const stored = await chrome.storage.sync.get(Object.keys(DEFAULTS));
-  return { ...DEFAULTS, ...stored };
+  if (typeof browser !== 'undefined' && browser.storage && browser.storage.sync) {
+    const stored = await browser.storage.sync.get(Object.keys(DEFAULTS));
+    return { ...DEFAULTS, ...stored };
+  }
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(Object.keys(DEFAULTS), (stored) => {
+      resolve({ ...DEFAULTS, ...stored });
+    });
+  });
 }
 
 // Нормализация адреса сервера: без схемы добавляем http://, режем хвостовые слеши.
@@ -92,27 +101,43 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // --- Контекстное меню: выполнить выделенный текст (запасной путь) ---
 function axCreateMenu() {
   try {
-    chrome.contextMenus.removeAll(() => {
+    const b = typeof browser !== 'undefined' ? browser : chrome;
+    const create = () => {
       try {
-        chrome.contextMenus.create({
+        b.contextMenus.create({
           id: 'ax-run-selection',
           title: '⚡ Выполнить выделенное локально',
           contexts: ['selection']
+        }, () => {
+          if (b.runtime && b.runtime.lastError) { /* ignore */ }
         });
-      } catch (e) { /* ignore */ }
-    });
-  } catch (e) { /* ignore */ }
+      } catch {}
+    };
+    if (typeof browser !== 'undefined' && b.contextMenus && b.contextMenus.removeAll) {
+      const p = b.contextMenus.removeAll();
+      if (p && p.then) p.then(create).catch(create);
+      else create();
+    } else if (chrome.contextMenus && chrome.contextMenus.removeAll) {
+      chrome.contextMenus.removeAll(() => create());
+    } else {
+      create();
+    }
+  } catch {}
 }
-chrome.runtime.onInstalled.addListener(axCreateMenu);
-chrome.runtime.onStartup.addListener(axCreateMenu);
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+const bRuntime = (typeof browser !== 'undefined' && browser.runtime) ? browser.runtime : chrome.runtime;
+bRuntime.onInstalled.addListener(axCreateMenu);
+bRuntime.onStartup.addListener(axCreateMenu);
+
+const bMenus = (typeof browser !== 'undefined' && browser.contextMenus) ? browser.contextMenus : chrome.contextMenus;
+bMenus.onClicked.addListener((info, tab) => {
   if (!info || info.menuItemId !== 'ax-run-selection' || !tab || tab.id == null) return;
   const text = (info.selectionText || '').trim();
   if (!text) return;
   const payload = { type: 'AX_RUN_SELECTION', text };
+  const b = typeof browser !== 'undefined' ? browser : chrome;
   try {
-    const pr = chrome.tabs.sendMessage(tab.id, payload);
+    const pr = b.tabs.sendMessage(tab.id, payload);
     if (pr && pr.catch) pr.catch(() => axInjectAndRetry(tab.id, payload));
   } catch (e) {
     axInjectAndRetry(tab.id, payload);
@@ -122,17 +147,21 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Если content-script ещё не внедрён (вкладка открыта до установки) — внедряем и повторяем
 function axInjectAndRetry(tabId, payload) {
   try {
+    const b = typeof browser !== 'undefined' ? browser : chrome;
     try {
-      const cssPr = chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
+      const cssPr = b.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
       if (cssPr && cssPr.catch) cssPr.catch(() => {});
     } catch (e) { /* ignore */ }
-    chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }).then(() => {
-      setTimeout(() => {
-        try {
-          const pr = chrome.tabs.sendMessage(tabId, payload);
-          if (pr && pr.catch) pr.catch(() => {});
-        } catch (e) { /* ignore */ }
-      }, 600);
-    }).catch(() => {});
+    const scrPr = b.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    if (scrPr && scrPr.then) {
+      scrPr.then(() => {
+        setTimeout(() => {
+          try {
+            const pr = b.tabs.sendMessage(tabId, payload);
+            if (pr && pr.catch) pr.catch(() => {});
+          } catch (e) { /* ignore */ }
+        }, 600);
+      }).catch(() => {});
+    }
   } catch (e) { /* ignore */ }
 }

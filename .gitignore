@@ -10,3 +10,5 @@ Thumbs.db
 
 # Build artifacts (собирается командой zip, в репозиторий не коммитим)
 *.zip
+dist/
+web-ext-artifacts/
