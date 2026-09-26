@@ -15,3 +15,6 @@ web-ext-artifacts/
 
 # User whitelist (личный, не в репозиторий)
 whitelist*.txt
+
+# Тесты расширения
+tests/node_modules/

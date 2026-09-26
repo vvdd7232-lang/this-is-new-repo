@@ -26,7 +26,7 @@ import time
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.5.2.0'
+VERSION = '2.5.3.1'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
@@ -52,11 +52,41 @@ def _readable_score(s):
     return score
 
 
+def _decode_one_line(chunk):
+    """Декодирует один фрагмент (строку) в наиболее правдоподобной кодировке.
+    Windows даёт СМЕШАННЫЙ поток: внутренние команды cmd (echo, dir) пишут
+    в OEM-кодировке (cp866), а node/python всегда пишут UTF-8. Единая
+    кодировка на весь буфер гарантированно ломает половину строк."""
+    # 1) Строгий UTF-8 — предпочтителен: node/python всегда шлют utf-8.
+    try:
+        s = chunk.decode('utf-8')
+        if any(0x400 <= ord(c) <= 0x4FF for c in s):
+            return s  # есть кириллица => это точно UTF-8
+        alt866 = chunk.decode('cp866', errors='replace')
+        if _readable_score(alt866) > _readable_score(s) + 4:
+            return alt866
+        return s
+    except (UnicodeDecodeError, LookupError):
+        pass
+    # 2) Не UTF-8 — выбираем между cp866 и cp1251 по читаемости.
+    cands = []
+    for enc in ('cp866', 'cp1251'):
+        try:
+            t = chunk.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+        cands.append((_readable_score(t), t))
+    if cands:
+        cands.sort(key=lambda x: x[0], reverse=True)
+        return cands[0][1]
+    return chunk.decode('utf-8', errors='replace')
+
+
 def smart_decode(data):
     """Декодируем вывод процесса.
-    Сначала строгий UTF-8; дальше — выбор между CP866 (консоль Win) и CP1251
-    по эвристике читаемости (обе декодируют любые байты без ошибок, поэтому
-    простой порядок перебора давал бы кракозябры в половине случаев)."""
+    Быстрый путь — весь буфер как строгий UTF-8. Если не вышло (смешанный
+    вывод cmd + node/python), разбиваем по переводам строк и декодируем
+    каждую строку отдельно."""
     if not data:
         return ''
     if isinstance(data, str):
@@ -65,25 +95,76 @@ def smart_decode(data):
         return data.decode('utf-8')
     except (UnicodeDecodeError, LookupError):
         pass
-    cands = []
-    for enc in ('cp866', 'cp1251'):
-        try:
-            t = data.decode(enc)
-        except (UnicodeDecodeError, LookupError):
+    # Смешанный буфер: сохраняем разделители строк как есть.
+    parts = re.split(rb'(\r\n|\n|\r)', data)
+    out = []
+    for chunk in parts:
+        if not chunk:
             continue
-        cands.append((_readable_score(t), t))
-    if cands:
-        cands.sort(key=lambda x: x[0], reverse=True)
-        return cands[0][1]
-    return data.decode('utf-8', errors='replace')
+        if chunk in (b'\r\n', b'\n', b'\r'):
+            out.append(chunk.decode('ascii'))
+            continue
+        out.append(_decode_one_line(chunk))
+    return ''.join(out)
+
+
+def _win_short_path(p):
+    """8.3-имя файла (C:\\Users\\MINECR~1\\...). Нужно, чтобы путь к .cmd
+    гарантированно не содержал пробелов: иначе cmd.exe с `call "путь"` в
+    некоторых комбинациях ключей не находит файл и команда молча падает."""
+    try:
+        import ctypes
+        buf = ctypes.create_unicode_buffer(1024)
+        if ctypes.windll.kernel32.GetShortPathNameW(p, buf, 1024):
+            return buf.value or p
+    except Exception:
+        pass
+    return p
+
+
+def _run_shell_windows_multiline(command, timeout, cwd, env=None):
+    """Многострочные команды для cmd.exe.
+    shell=True передаёт весь текст одной строкой — cmd.exe читает ТОЛЬКО
+    первую строку и молча теряет всё после первого \n. Поэтому пишем
+    временный .cmd и запускаем файлом.
+
+    Кодировка — cp866 (OEM-кодировка русской консоли), chcp 866 выполняется
+    ДО `call`, чтобы cmd читал файл именно в cp866. При chcp 65001 кириллица
+    из тела .cmd ломается («т_мир» вместо «Привет_мир») — проверено."""
+    norm = command.replace('\r\n', '\n').replace('\r', '\n')
+    with tempfile.NamedTemporaryFile('w', suffix='.cmd', delete=False,
+                                     encoding='cp866', errors='replace', newline='') as f:
+        f.write('@echo off\n' + norm + '\n')
+        path = f.name
+    try:
+        # call + короткое имя без кавычек: кавычки вокруг пути cmd.exe
+        # обрабатывает нестабильно (в части сборок Windows путь с кавычками
+        # трактуется как имя файла с кавычками внутри).
+        short = _win_short_path(path)
+        return subprocess.run(['cmd', '/d', '/c', 'chcp 866 >nul && call ' + short],
+                              capture_output=True, timeout=timeout, cwd=cwd or None, env=env)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def run_shell(command, timeout, cwd):
     """Shell: cmd.exe на Windows, bash (или sh) на Linux/Mac."""
     if os.name == 'nt':
-        # chcp 65001: внутренние команды cmd отдают UTF-8 (кириллица не едет в ????)
+        # Python при выводе в pipe по умолчанию берёт ANSI/OEM-кодировку консоли
+        # и падает на кириллице (UnicodeEncodeError: 'charmap'). Эти две
+        # переменные заставляют любой дочерний python писать UTF-8 независимо
+        # от chcp. node и так всегда пишет UTF-8, ему ничего не нужно.
+        env = {**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}
+        # Многострочные команды — через .cmd-файл (см. _run_shell_windows_multiline).
+        if '\n' in command:
+            return _run_shell_windows_multiline(command, timeout, cwd, env)
+        # Однострочные: chcp 65001 — чтобы внутренние команды cmd отдавали UTF-8
+        # (кириллица не едет в ????).
         return subprocess.run('chcp 65001 >nul & ' + command, shell=True, capture_output=True,
-                              timeout=timeout, cwd=cwd or None)
+                              timeout=timeout, cwd=cwd or None, env=env)
     bash = '/bin/bash' if os.path.exists('/bin/bash') else '/bin/sh'
     return subprocess.run(command, shell=True, capture_output=True,
                           timeout=timeout, cwd=cwd or None, executable=bash)

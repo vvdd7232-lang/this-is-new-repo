@@ -104,7 +104,7 @@
     /\bhalt\b/i, /\bpoweroff\b/i, /\bdoas\b/i,
   ];
 
-  let settings = { serverUrl: 'http://127.0.0.1:8765', timeout: 30, requireConfirm: true, maxOutputChars: 32000, autoExecute: false, autoInsert: false, autoSend: false, autoDelay: 3, looseSearch: true, autoWeak: false, maxAutoRuns: 0, defaultRunner: 'shell', showToasts: true, defaultCwd: '' };
+  let settings = { serverUrl: 'http://127.0.0.1:8765', timeout: 30, requireConfirm: true, maxOutputChars: 32000, autoExecute: false, autoInsert: false, autoSend: false, autoDelay: 3, looseSearch: true, autoWeak: false, maxAutoRuns: 0, defaultRunner: 'shell', showToasts: true, defaultCwd: '', echoMode: 'short' };
 
   // --- состояние автопилота (на одну загрузку вкладки) ---
   // Лимит автозапусков задаётся настройкой maxAutoRuns (0 = без лимита)
@@ -585,7 +585,24 @@
 
   // ---------- Вставка результата в поле ввода чата ----------
 
-  function formatResult({ command, runner, exit_code, stdout, stderr, truncated, cwd, stdoutBytes, stderrBytes, limitBytes, executed, seq, durationMs, timedOut }) {
+  // Эхо-репликация команды в сообщении о результате.
+  // echoMode:
+  //   'full'  — печатать команду целиком (как раньше)
+  //   'short' — многострочные/длинные команды схлопываются в «первая строка …(N строк, M симв.)» (по умолчанию)
+  //   'none'  — вместо тела команды только метка «(N строк, M симв.)»
+  function echoCommand(cmd, mode) {
+    const c = cmd || '';
+    if (mode === 'none') return '(команда скрыта: ' + c.split('\n').length + ' стр., ' + c.length + ' симв.)';
+    if (mode === 'full') return c;
+    // short
+    const lines = c.split('\n');
+    if (lines.length <= 1 && c.length <= 240) return c;
+    const first = (lines[0] || '').slice(0, 200);
+    return first + '\n…(команда скрыта: ' + lines.length + ' стр., ' + c.length + ' симв.)';
+  }
+
+
+  function formatResult({ command, runner, exit_code, stdout, stderr, truncated, cwd, stdoutBytes, stderrBytes, limitBytes, executed, seq, durationMs, timedOut, echoMode }) {
     const max = +settings.maxOutputChars || 0; // 0 = без лимита
     const so = stdout || '', se = stderr || '';
     let out = max > 0 ? so.slice(0, max) : so;
@@ -599,7 +616,7 @@
       ' stderr_bytes=' + (stderrBytes != null ? stderrBytes : se.length) +
       (durationMs != null ? ' dur=' + (durationMs < 1000 ? durationMs + 'ms' : (durationMs / 1000).toFixed(1) + 's') : '') +
       (clipIns ? ' insert_truncated=yes shown_chars=' + out.length + '/' + so.length : '') +
-      '\n$ ' + command + '\n';
+      '\n$ ' + echoCommand(command, echoMode) + '\n';
     if (out) txt += '--- stdout ---\n' + out + (max > 0 && so.length > max ? '\n…(обрезано вставкой: лимит ' + max + ' симв.)' : '') + '\n';
     const clipErr = max > 0 && se.length > Math.floor(max / 2);
     if (err) txt += '--- stderr ---\n' + err + (clipErr ? '\n…(обрезано вставкой: лимит ' + Math.floor(max / 2) + ' симв.)' : '') + '\n';
@@ -610,9 +627,15 @@
     return txt;
   }
 
-  function formatRunResult(cmd, runRunner, r, seq) {
+  function formatRunResult(cmd, runRunner, r, seq, echoMode) {
     r = r || {};
-    return formatResult({ command: cmd, runner: r.runner || runRunner, exit_code: r.exit_code, stdout: r.stdout || '', stderr: r.stderr || '', truncated: r.truncated, cwd: r.cwd, stdoutBytes: r.stdout_bytes, stderrBytes: r.stderr_bytes, limitBytes: r.limit_bytes, executed: r.executed, seq: seq, durationMs: r.duration_ms, timedOut: r.timed_out });
+    if (r.view) {
+      var v = r.view;
+      var head = '[LOCAL EXEC RESULT] seq=' + (seq || 0) + ' status=done view=' + v.path + '\n$ ' + echoCommand(cmd, echoMode) + '\n';
+      var body = '--- view ---\n\ud83d\uddbc\ufe0f ' + v.path + ' (' + v.mime + ', ' + v.size + ' B)\n';
+      return head + body;
+    }
+    return formatResult({ command: cmd, runner: r.runner || runRunner, exit_code: r.exit_code, stdout: r.stdout || '', stderr: r.stderr || '', truncated: r.truncated, cwd: r.cwd, stdoutBytes: r.stdout_bytes, stderrBytes: r.stderr_bytes, limitBytes: r.limit_bytes, executed: r.executed, seq: seq, durationMs: r.duration_ms, timedOut: r.timed_out, echoMode: echoMode });
   }
 
   // Видимость через геометрию (offsetParent врёт для position:fixed)
@@ -623,28 +646,135 @@
     } catch { return false; }
   }
 
-  function findChatInput() {
-    const selectors = [
-      'textarea#prompt-textarea',           // ChatGPT
-      'div#prompt-textarea[contenteditable]', // ChatGPT (новый)
-      'div[contenteditable="true"]',        // Claude / общий
-      'textarea[placeholder]',              // Arena / общий (поле ввода с плейсхолдером)
-      'textarea',
-    ];
-    const seen = new Set();
-    const candidates = [];
-    for (const sel of selectors) {
-      for (const el of document.querySelectorAll(sel)) {
-        if (seen.has(el)) continue;
-        seen.add(el);
-        if (isVisibleEl(el) && !el.disabled && !el.readOnly && el.getAttribute('contenteditable') !== 'false') candidates.push(el);
+  // ---------- Обход shadow DOM ----------
+  // Часть чатов (ProseMirror/новые версии) прячет композер в open shadow root,
+  // где document.querySelectorAll его не видит. Собираем shadow root'ы ОДИН раз
+  // на поиск, с бюджетом по узлам, чтобы не тормозить на тяжёлых страницах.
+  const SHADOW_NODE_BUDGET = 20000;
+  function collectShadowRoots() {
+    const roots = [];
+    let seen = 0;
+    const walk = (root) => {
+      let all = null;
+      try { all = root.querySelectorAll('*'); } catch { return; }
+      for (const el of all) {
+        if (++seen > SHADOW_NODE_BUDGET) return;
+        if (el.shadowRoot) { roots.push(el.shadowRoot); walk(el.shadowRoot); }
+      }
+    };
+    try { walk(document); } catch {}
+    return roots;
+  }
+
+  // Аналог querySelectorAll, но с учётом shadow DOM.
+  function deepQueryAll(selector, shadowRoots) {
+    const out = [];
+    try { for (const el of document.querySelectorAll(selector)) out.push(el); } catch { return out; }
+    if (shadowRoots) {
+      for (const root of shadowRoots) {
+        try { for (const el of root.querySelectorAll(selector)) out.push(el); } catch {}
       }
     }
-    if (!candidates.length) return null;
-    // Поле ввода чата обычно самое нижнее на странице (Arena, ChatGPT, Claude) —
-    // берём видимый кандидат с максимальным bottom.
-    candidates.sort((a, b) => a.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom);
-    return candidates[candidates.length - 1];
+    return out;
+  }
+
+  // ---------- Детектор поля ввода чата ----------
+  // Уровни по приоритету: первый непустой уровень выигрывает, внутри уровня
+  // берётся САМЫЙ НИЖНИЙ кандидат (max bottom) — композер всегда внизу страницы,
+  // сверху бывают поиск, заголовки и т.п. Внутри нижней «полосы» (разница
+  // bottom <= 60px) побеждает самый большой по площади элемент.
+  // DeepSeek: <textarea name="search"> (contenteditable там НЕ используется).
+  const CHAT_INPUT_TIERS = [
+    { site: 'DeepSeek',      sel: 'textarea[name="search"]' },
+    { site: 'ChatGPT',       sel: 'textarea#prompt-textarea' },
+    { site: 'ChatGPT',       sel: 'div#prompt-textarea[contenteditable="true"]' },
+    { site: 'Claude',        sel: 'div.ProseMirror[contenteditable="true"]' },
+    { site: 'Gemini',        sel: 'rich-textarea textarea' },
+    { site: 'Copilot',       sel: 'textarea[data-testid="user-input"], #user-input-textbox' },
+    { site: 'contenteditable', sel: 'div[contenteditable="true"][role="textbox"]' },
+    { site: 'textarea',      sel: 'textarea[placeholder]' },
+    { site: 'contenteditable', sel: 'div[contenteditable="true"]' },
+    { site: 'textarea',      sel: 'textarea' },
+  ];
+  const AX_OWN_SEL = '.ax-exec-panel, .ax-modal, .ax-toast, .ax-view-wrap';
+
+  function isOurNode(el) { try { return !!(el.closest && el.closest(AX_OWN_SEL)); } catch { return false; } }
+
+  function isChatInputCandidate(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const tag = el.tagName;
+    const ceAttr = el.getAttribute ? el.getAttribute('contenteditable') : null;
+    const isEditableHost = !!ceAttr && ceAttr !== 'false';
+    if (tag !== 'TEXTAREA' && tag !== 'INPUT' && !isEditableHost) return false;
+    if (tag === 'INPUT' && !/^(text|search|)$/i.test(el.type || 'text')) return false;
+    if (el.disabled || el.readOnly) return false;
+    if (el.getAttribute('aria-hidden') === 'true') return false;
+    if (isOurNode(el)) return false;
+    // Ловушка DeepSeek: <textarea name="user query"> — правка прошлого сообщения
+    const nm = (el.getAttribute('name') || '').toLowerCase();
+    if (nm === 'user query' || nm === 'user_query') return false;
+    if (!isVisibleEl(el)) return false;
+    let r = null;
+    try { r = el.getBoundingClientRect(); } catch { return false; }
+    if (!r || r.width < 60 || r.height < 12) return false;   // отсекаем служебные микрополя
+    return true;
+  }
+
+  function pickLowestInput(list) {
+    if (!list || !list.length) return null;
+    let best = null, bestBottom = -Infinity, bestArea = 0;
+    for (const el of list) {
+      let r = null;
+      try { r = el.getBoundingClientRect(); } catch { continue; }
+      if (!r) continue;
+      const area = r.width * r.height;
+      if (r.bottom > bestBottom || (Math.abs(r.bottom - bestBottom) <= 60 && area > bestArea)) {
+        best = el; bestBottom = Math.max(bestBottom, r.bottom); bestArea = Math.max(bestArea, area);
+      }
+    }
+    return best;
+  }
+
+  function findChatInputDetailed() {
+    const seen = new Set();
+    const active = document.activeElement;
+    const shadowRoots = collectShadowRoots();
+    for (const tier of CHAT_INPUT_TIERS) {
+      const found = [];
+      for (const el of deepQueryAll(tier.sel, shadowRoots)) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        if (isChatInputCandidate(el)) found.push(el);
+      }
+      if (!found.length) continue;
+      // если пользователь уже печатает в одном из найденных полей — не уводим фокус
+      let focused = null;
+      for (const el of found) {
+        if (el === active) { focused = el; break; }
+        try { if (el.contains && el.contains(active)) { focused = el; break; } } catch {}
+      }
+      return { el: focused || pickLowestInput(found), site: tier.site, tier: tier, candidates: found };
+    }
+    return { el: null, site: null, tier: null, candidates: [] };
+  }
+
+  function findChatInput() { return findChatInputDetailed().el; }
+
+  function describeChatInput(found) {
+    if (!found || !found.el) return { found: false, url: location.href };
+    const el = found.el;
+    let r = {};
+    try { r = el.getBoundingClientRect(); } catch {}
+    return {
+      found: true, site: found.site, selector: found.tier ? found.tier.sel : null,
+      tag: el.tagName, id: el.id || '', name: el.getAttribute('name') || '',
+      placeholder: el.getAttribute('placeholder') || '',
+      contenteditable: el.getAttribute('contenteditable'),
+      isContentEditable: !!el.isContentEditable,
+      className: el.className ? String(el.className).slice(0, 100) : '',
+      bottom: Math.round(r.bottom || 0), width: Math.round(r.width || 0), height: Math.round(r.height || 0),
+      candidates: (found.candidates || []).length,
+    };
   }
 
   function setTextareaReactSafe(input, text) {
@@ -667,7 +797,7 @@
   // toastText: undefined = стандартный тост, строка = свой текст, null = тихо
   function insertIntoChat(text, toastText) {
     const input = findChatInput();
-    if (!input) { if (toastText !== null) toast('Поле ввода чата не найдено — результат скопирован'); return null; }
+    if (!input) { silentCopy(text); if (toastText !== null) toast('Поле ввода чата не найдено — результат скопирован в буфер'); return null; }
     try {
       input.focus();
       if (input.tagName === 'TEXTAREA') {
@@ -864,7 +994,7 @@
           return;
         }
         markExecuted(command, r.runner || runRunner);
-        const formatted = formatRunResult(command, runRunner, r, mySeq);
+        const formatted = formatRunResult(command, runRunner, r, mySeq, 'full');
         showResultModal(formatted, r.exit_code === 0);
       }
     );
@@ -904,19 +1034,297 @@
     }
     box.querySelector('.ax-view-img').src = view.data_url;
     box.querySelector('.ax-view-meta').textContent = view.path + ' (' + view.mime + ', ' + view.size + ' B)';
+    addViewRetryButton(box, view);
   }
 
-  function insertImageIntoChat(view) {
-    if (!view || !view.data_url) return false;
-    const input = findChatInput();
-    if (!input) return false;
-    const isCE = input.getAttribute && input.getAttribute('contenteditable') === 'true';
-    if (!isCE) return false;
+  // Ручной повтор вставки: если авто-вставка не сработала (или ты уже открыл
+  // новый чат), кнопка под превью повторяет всю лестницу методов.
+  function addViewRetryButton(box, view) {
+    if (!box || box.querySelector('.ax-btn-view-retry')) return;
+    const btn = document.createElement('button');
+    btn.className = 'ax-btn ax-btn-view-retry';
+    btn.textContent = '🖼 Вставить в чат';
+    btn.title = 'Повторить вставку картинки в поле ввода чата';
+    btn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      Promise.resolve(insertImageIntoChat(view)).catch((err) => console.warn('[AX] view retry:', err));
+    };
+    box.appendChild(btn);
+  }
+
+  // ---------- Вставка картинки в чат (view) ----------
+
+  // Расширение -> нормальное расширение файла. DeepSeek и другие проверяют
+  // accept по расширению (accept=".pdf,.png,..."), поэтому 'image.svg+xml'
+  // и 'image.x-icon' из наивного mime.split('/')[1] НЕ проходят проверку.
+  const VIEW_MIME_EXT = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/pjpeg': 'jpg',
+    'image/gif': 'gif', 'image/webp': 'webp', 'image/bmp': 'bmp', 'image/x-ms-bmp': 'bmp',
+    'image/avif': 'avif', 'image/apng': 'png', 'image/heic': 'heic', 'image/heif': 'heif',
+    'image/tiff': 'tiff', 'image/svg+xml': 'svg', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico',
+  };
+
+  function dataUrlToBlob(dataUrl, fallbackMime) {
+    const s = String(dataUrl || '');
+    const comma = s.indexOf(',');
+    if (comma < 0) return null;
+    const meta = s.slice(0, comma);
+    const payload = s.slice(comma + 1);
+    const m = meta.match(/^data:([^;,]+)/i);
+    const mime = (m && m[1]) || fallbackMime || 'image/png';
     try {
-      input.focus();
-      try { document.execCommand('insertImage', false, view.data_url); return true; } catch (e) {}
-      return false;
-    } catch (e) { return false; }
+      if (/;base64/i.test(meta)) {
+        const bin = atob(payload);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new Blob([bytes], { type: mime });
+      }
+      return new Blob([decodeURIComponent(payload)], { type: mime });
+    } catch (e) {
+      console.warn('[AX] view: не удалось разобрать data_url:', e);
+      return null;
+    }
+  }
+
+  function makeViewFile(blob, path) {
+    const mime = (blob.type || 'image/png').toLowerCase();
+    let ext = VIEW_MIME_EXT[mime];
+    if (!ext) {
+      const fromPath = String(path || '').match(/\.([a-z0-9]{2,5})$/i);
+      ext = fromPath ? fromPath[1].toLowerCase() : 'png';
+    }
+    const raw = String(path || 'image').split(/[\\/]/).pop() || 'image';
+    const base = raw.replace(/\.[^.]*$/, '').replace(/[^\w.\-]+/g, '_') || 'image';
+    return new File([blob], base + '.' + ext, { type: blob.type || mime });
+  }
+
+  // Ищем скрытый input[type=file] композера: это единственный путь, которым
+  // DeepSeek/ChatGPT/Claude реально принимают картинку (свой onPaste файлов нет).
+  function findUploadFileInput(input) {
+    const all = deepQueryAll('input[type="file"]', collectShadowRoots());
+    let best = null, bestScore = -1;
+    for (const fi of all) {
+      if (isOurNode(fi) || fi.disabled) continue;
+      const accept = (fi.getAttribute('accept') || '').toLowerCase();
+      if (accept && !/image|\.(png|jpe?g|gif|webp|bmp|avif|svg|ico|tiff)\b/.test(accept)) continue;
+      let score = 0;
+      if (fi.multiple) score += 2;
+      try {
+        if (input) {
+          const host = input.closest('form') || input.parentElement || input;
+          if (host && (host.contains(fi) || (host.parentElement && host.parentElement.contains(fi)))) score += 6;
+        }
+      } catch {}
+      if (score > bestScore) { best = fi; bestScore = score; }
+    }
+    return best;
+  }
+
+  function composerScope(input) {
+    try { return input.closest('form') || input.parentElement || input; } catch { return input; }
+  }
+
+  // Считаем «следы» принятой картинки в DOM композера.
+  function countAttachmentNodes(scope) {
+    try {
+      const root = scope && scope.nodeType === 1 ? scope : document;
+      return root.querySelectorAll('img[src^="blob:"], img[src^="data:image"], [class*="attachment" i], [class*="thumb" i], [class*="file-icon" i]').length;
+    } catch { return 0; }
+  }
+
+  // Ждём реального изменения DOM. Без этой проверки тост «вставлено» врал:
+  // событие уходило в пустоту, а UI рапортовал об успехе.
+  // ВАЖНО: вызывать ДО отправки события — иначе синхронная реакция сайта
+  // (сайт часто рисует превью прямо в обработчике) уже попадёт в baseline.
+  function waitForAttachment(scope, ms) {
+    const limit = ms || 2000;
+    let cancelFn = null;
+    const promise = new Promise((resolve) => {
+      const root = scope && scope.nodeType === 1 ? scope : document.body;
+      if (!root) return resolve(false);
+      const before = countAttachmentNodes(scope);
+      let settled = false;
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        try { obs.disconnect(); } catch {}
+        clearInterval(iv);
+        clearTimeout(to);
+        resolve(ok);
+      };
+      cancelFn = () => finish(false);
+      const grew = () => countAttachmentNodes(scope) > before;
+      let obs = null;
+      try {
+        obs = new MutationObserver(() => { if (grew()) finish(true); });
+        obs.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'class'] });
+      } catch {}
+      const iv = setInterval(() => { if (grew()) finish(true); }, 120);
+      const to = setTimeout(() => finish(false), limit);
+      if (grew()) finish(true);
+    });
+    promise.cancel = () => { try { cancelFn && cancelFn(); } catch {} };
+    return promise;
+  }
+
+  // Синтетическая вставка: срабатывает ТОЛЬКО если у сайта есть свой onPaste с
+  // файлами. В Firefox init-dict clipboardData игнорируется (clipboardData === null),
+  // поэтому сначала проверяем round-trip и не тратим время впустую.
+  function trySyntheticPaste(input, file, scope) {
+    let dt = null;
+    try {
+      dt = new DataTransfer();
+      dt.items.add(file);
+    } catch (e) { return Promise.resolve({ ok: false, why: 'DataTransfer: ' + e }); }
+    let ev;
+    try {
+      ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+    } catch (e) { return Promise.resolve({ ok: false, why: 'ClipboardEvent: ' + e }); }
+    const roundTrip = !!(ev.clipboardData && ev.clipboardData.items && ev.clipboardData.items.length);
+    if (!roundTrip) return Promise.resolve({ ok: false, why: 'браузер не пробросил clipboardData' });
+    // Наблюдатель — до dispatch: onPaste сайта обычно рисует превью синхронно.
+    const wait = waitForAttachment(scope, 1500);
+    input.dispatchEvent(ev);
+    // Часть редакторов (Lexical/ProseMirror) слушает beforeinput/input с inputType.
+    try {
+      input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertFromPaste', dataTransfer: dt }));
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', dataTransfer: dt }));
+    } catch {}
+    return wait.then((ok) => ({ ok, why: ok ? '' : 'событие отправлено, но DOM не изменился' }));
+  }
+
+  // execCommand('insertImage') — только для настоящего contenteditable.
+  function tryExecInsertImage(input, dataUrl, scope) {
+    try {
+      if (document.queryCommandSupported && !document.queryCommandSupported('insertImage')) {
+        return Promise.resolve({ ok: false, why: 'insertImage не поддерживается браузером' });
+      }
+    } catch { /* queryCommandSupported может отсутствовать */ }
+    const wait = waitForAttachment(scope, 1500);
+    try {
+      if (!document.execCommand('insertImage', false, dataUrl)) {
+        wait.cancel && wait.cancel();
+        return Promise.resolve({ ok: false, why: 'execCommand вернул false' });
+      }
+    } catch (e) {
+      return Promise.resolve({ ok: false, why: 'execCommand: ' + e });
+    }
+    return wait.then((ok) => ({ ok, why: ok ? '' : 'отработал, но <img> не появился' }));
+  }
+
+  // Запасной путь: кладём картинку в буфер и просим нажать Ctrl+V.
+  // ClipboardItem в реальности принимает только image/png — остальное конвертим.
+  async function copyImageToClipboard(blob) {
+    if (!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem) {
+      return { ok: false, why: 'Clipboard API недоступен' };
+    }
+    const supports = (t) => {
+      try { return !window.ClipboardItem.supports || window.ClipboardItem.supports(t); } catch { return false; }
+    };
+    let outBlob = blob;
+    let outMime = blob.type || 'image/png';
+    if (!supports(outMime)) {
+      const png = await transcodeToPng(blob);
+      if (!png) return { ok: false, why: 'формат ' + outMime + ' не поддерживается буфером' };
+      outBlob = png;
+      outMime = 'image/png';
+    }
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ [outMime]: outBlob })]);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, why: 'clipboard.write: ' + (e && e.name ? e.name : e) };
+    }
+  }
+
+  async function transcodeToPng(blob) {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width || 1;
+      canvas.height = bmp.height || 1;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(bmp, 0, 0);
+      if (bmp.close) bmp.close();
+      return await new Promise((res) => canvas.toBlob((b) => res(b), 'image/png'));
+    } catch { return null; }
+  }
+
+  // Последняя картинка view — чтобы можно было повторить вставку из консоли.
+  let lastViewData = null;
+
+  async function insertImageIntoChat(view) {
+    if (view && view.data_url) lastViewData = view;
+    if (!view || !view.data_url) { toast('🖼 view: сервер не вернул data_url'); return false; }
+    const diag = { url: location.href, steps: [] };
+    const say = (s) => { diag.steps.push(s); try { console.info('[AX][view]', s); } catch {} };
+    const found = findChatInputDetailed();
+    diag.input = describeChatInput(found);
+    say('поле ввода: ' + JSON.stringify(diag.input));
+    const input = found.el;
+    if (!input) { toast('\uD83D\uDDBC view: \u043D\u0435 \u043D\u0430\u0448\u0451\u043B \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430 \u2014 \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432 \u043F\u0440\u0435\u0432\u044C\u044E \u043F\u043E\u0434 \u0431\u043B\u043E\u043A\u043E\u043C (\u043F\u043E\u0434\u0440\u043E\u0431\u043D\u043E\u0441\u0442\u0438 \u0432 F12)', 4500); return false; }
+    const blob = dataUrlToBlob(view.data_url, view.mime);
+    if (!blob) { toast('view: \u043D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0440\u0430\u0437\u043E\u0431\u0440\u0430\u0442\u044C \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0443'); return false; }
+    const file = makeViewFile(blob, view.path);
+    diag.file = { name: file.name, type: file.type, size: file.size };
+    say('\u0444\u0430\u0439\u043B: ' + file.name + ' | ' + file.type + ' | ' + file.size + ' B');
+    try { input.focus({ preventScroll: true }); } catch { try { input.focus(); } catch {} }
+    const scope = composerScope(input);
+    const isCE = !!input.isContentEditable || input.getAttribute('contenteditable') === 'true';
+    diag.isContentEditable = isCE;
+
+    // --- Шаг 1: скрытый input[type=file] композера (DeepSeek / ChatGPT / Claude) ---
+    // Единственный реально работающий путь: у синтетической вставки файла нет
+    // UA-default-action, а собственного onPaste с файлами у чатов обычно нет.
+    const fi = findUploadFileInput(input);
+    if (fi) {
+      try {
+        // Наблюдатель поднимаем ДО отправки события: сайт обычно рисует
+        // превью синхронно в обработчике change, и такой узел иначе попал бы
+        // в baseline и не был бы засчитан как подтверждение.
+        const wait = waitForAttachment(scope, 2500);
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fi.files = dt.files;
+        // React/Preact читают onChange файлов по событию change (не input).
+        fi.dispatchEvent(new Event('input', { bubbles: true }));
+        fi.dispatchEvent(new Event('change', { bubbles: true }));
+        const ok = await wait;
+        diag.fileInput = { accept: fi.getAttribute('accept'), multiple: !!fi.multiple, verified: ok };
+        say('file-input: \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D, \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D=' + ok);
+        if (ok) { toast('view: \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0430 \u0432 \u0447\u0430\u0442', 3500); return true; }
+        if (fi.files && fi.files.length) { toast('view: \u0444\u0430\u0439\u043B \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D \u0432 \u043F\u043E\u043B\u0435 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C \u043F\u0440\u0435\u0432\u044C\u044E', 5000); return true; }
+      } catch (e) {
+        say('file-input \u043E\u0448\u0438\u0431\u043A\u0430: ' + e);
+      }
+    } else {
+      say('file-input \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D');
+    }
+
+    // --- Шаг 2: синтетическая вставка (только contenteditable с onPaste) ---
+    if (isCE) {
+      const r = await trySyntheticPaste(input, file, scope);
+      say('paste: ok=' + r.ok + (r.why ? ' (' + r.why + ')' : ''));
+      if (r.ok) { toast('view: \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0430 \u0432 \u0447\u0430\u0442', 3500); return true; }
+    } else {
+      say('paste: \u043F\u0440\u043E\u043F\u0443\u0449\u0435\u043D \u2014 \u043F\u043E\u043B\u0435 \u043D\u0435 contenteditable');
+    }
+
+    // --- Шаг 3: execCommand insertImage (только contenteditable) ---
+    if (isCE) {
+      const r = await tryExecInsertImage(input, view.data_url, scope);
+      say('execCommand insertImage: ok=' + r.ok + (r.why ? ' (' + r.why + ')' : ''));
+      if (r.ok) { toast('view: \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0430 \u0432 \u0447\u0430\u0442', 3500); return true; }
+    }
+
+    // --- Шаг 4: буфер обмена + подсказка Ctrl+V ---
+    const cp = await copyImageToClipboard(blob);
+    say('clipboard: ok=' + cp.ok + (cp.why ? ' (' + cp.why + ')' : ''));
+    if (cp.ok) toast('\u041a\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432 \u0431\u0443\u0444\u0435\u0440\u0435 \u043E\u0431\u043C\u0435\u043D\u0430 \u2014 \u043D\u0430\u0436\u043C\u0438 Ctrl+V \u0432 \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430', 4500);
+    else toast('view: \u0430\u0432\u0442\u043E-\u0432\u0441\u0442\u0430\u0432\u043A\u0430 \u043D\u0435 \u0441\u0440\u0430\u0431\u043E\u0442\u0430\u043B\u0430 \u2014 \u043E\u0442\u043A\u0440\u043E\u0439 \u043F\u0440\u0435\u0432\u044C\u044E \u0438 \u0432\u0441\u0442\u0430\u0432\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E (F12: [AX][view])', 5000);
+    return false;
   }
 
   function applyPanelAppearance(panel) {
@@ -1025,7 +1433,8 @@
     const status = panel.querySelector('.ax-exec-status');
     const outBox = panel.querySelector('.ax-exec-output');
     const after = panel.querySelector('.ax-exec-after');
-    let lastFormatted = '';
+    let lastFormatted = '';      // полная версия — для панели под блоком
+    let lastChatFormatted = '';  // с учётом echoMode — для кнопки «📥 В чат» и авто-вставки
 
     function renderPreview() {
       const box = panel.querySelector('.ax-exec-cmd-preview');
@@ -1052,9 +1461,13 @@
     }
 
     async function doRun(cmdOverride, isAuto, onDone) {
-      const fin = () => { running = false; try { onDone && onDone(); } catch {} };
-      if (running) { toast('Уже выполняется — дождись результата'); fin(); return; }
+      const done = () => { try { onDone && onDone(); } catch {} };
+      // Если команда уже выполняется — НЕ трогаем running (иначе гард снимается
+      // и параллельный вызов запустит вторую команду одновременно), но всё
+      // равно уведомляем колбэк: очередь автопилота ждёт onDone, иначе залипнет.
+      if (running) { toast('Уже выполняется — дождись результата'); done(); return; }
       running = true;
+      const fin = () => { running = false; done(); };
       if (!isAuto) { loopBlocked = false; lastAutoCommands = []; }
       // команду перечитываем из блока в момент запуска (блок мог достримиться после создания панели)
       const cmd = ((cmdOverride != null ? cmdOverride : getCodeText(pre)) || '').trim();
@@ -1080,20 +1493,30 @@
       outBox.style.display = 'none';
       after.style.display = 'none';
 
-      if (settings.autoInsert) {
-        noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + cmd + '\n');
-      }
+      // status=running шлём ТОЛЬКО если команда реально ещё не завершилась.
+      // Раньше для view и быстрых команд в чат уходило ложное «running», а
+      // «done» прилетал тем же сообщением — ИИ не понимал, чего ждать.
+      // Ждём 800 мс: если ответ успел прийти — running не отправляем вообще.
+      let runFinished = false;
+      let runStatusSent = false;
+      const runStatusTimer = settings.autoInsert ? setTimeout(() => {
+        if (runFinished || runStatusSent) return;
+        runStatusSent = true;
+        noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
+      }, 800) : null;
       safeSend(
         { type: 'AX_RUN', payload: { command: cmd, runner: runRunner, timeout: settings.timeout, cwd: settings.defaultCwd || undefined } },
         (resp) => {
+          runFinished = true;
+          if (runStatusTimer) clearTimeout(runStatusTimer);
           btnRun.disabled = false;
           btnRun.textContent = '▶ Выполнить';
           if (!resp) {
-            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + cmd + '\nнет ответа от расширения\n');
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + echoCommand(cmd, settings.echoMode) + '\nнет ответа от расширения\n');
             status.className = 'ax-exec-status ax-err'; status.textContent = '❌ Нет ответа от расширения.'; fin(); return;
           }
           if (!resp.ok) {
-            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + cmd + '\n' + resp.error + '\n');
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + echoCommand(cmd, settings.echoMode) + '\n' + resp.error + '\n');
             const looksConn = /fetch|abort|network|ожидания|ECONN|Failed/i.test(resp.error || '');
             status.className = 'ax-exec-status ax-err';
             status.textContent = '❌ Ошибка: ' + resp.error + (looksConn ? ' — запущен ли server.py?' : '');
@@ -1105,7 +1528,7 @@
           const r = resp.result || {};
           // whitelist на сервере заблокировал команду - не ошибка, но и не выполнено
           if (r.blocked) {
-            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + cmd + '\n' + (r.error || '') + '\n');
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + echoCommand(cmd, settings.echoMode) + '\n' + (r.error || '') + '\n');
             status.className = 'ax-exec-status ax-err';
             status.textContent = '\u26d4 Whitelist: ' + (r.error || 'команда не разрешена');
             toast('\u26d4 ' + (r.error || 'Заблокировано whitelist'));
@@ -1113,11 +1536,20 @@
             return;
           }
           markExecuted(cmd, r.runner || runRunner);
-          lastFormatted = formatRunResult(cmd, runRunner, r, mySeq);
-          if (r.view) { try { renderView(panel, r.view); insertImageIntoChat(r.view); } catch (e) {} }
-          const okExit = r.exit_code === 0;
+          lastFormatted = formatRunResult(cmd, runRunner, r, mySeq, 'full');
+          lastChatFormatted = formatRunResult(cmd, runRunner, r, mySeq, settings.echoMode);
+          if (r.view) {
+            try { renderView(panel, r.view); } catch (e) {}
+            // await невозможен (колбэк sync), поэтому ловим отказ явно
+            try { Promise.resolve(insertImageIntoChat(r.view)).catch((e) => console.warn('[AX] view insert:', e)); } catch (e) {}
+          }
+          const okExit = r.view ? true : (r.exit_code === 0);
           status.className = 'ax-exec-status ' + (okExit ? 'ax-ok' : 'ax-err');
-          status.textContent = (okExit ? '✅ exit=0' : '⚠️ exit=' + r.exit_code) + ' #' + mySeq + ' • stdout: ' + (r.stdout || '').length + ' симв. • stderr: ' + (r.stderr || '').length + ' симв.';
+          if (r.view) {
+            status.textContent = '🖼️ view: ' + r.view.path + ' (' + r.view.mime + ', ' + Math.round(r.view.size/1024) + ' KB) #' + mySeq;
+          } else {
+            status.textContent = (okExit ? '✅ exit=0' : '⚠️ exit=' + r.exit_code) + ' #' + mySeq + ' • stdout: ' + (r.stdout || '').length + ' симв. • stderr: ' + (r.stderr || '').length + ' симв.';
+          }
           outBox.textContent = lastFormatted;
           outBox.style.display = 'block';
           after.style.display = 'flex';
@@ -1127,9 +1559,9 @@
           // --- автопилот: автовставка + автоотправка ---
           // Отправку ждём до конца: следующий результат встанет в очередь только
           // после неё, иначе быстрые команды склеивались бы в одно сообщение.
-          if (settings.autoInsert && lastFormatted) {
+          if (settings.autoInsert && lastChatFormatted) {
             try {
-              const input = insertIntoChat('\n```text\n' + lastFormatted + '\n```\n');
+              const input = insertIntoChat('\n```text\n' + lastChatFormatted + '\n```\n');
               if (input && settings.autoSend) { autoSendToChat(input, fin); return; }
             } catch (e) { console.warn('[AX] insert:', e); }
           }
@@ -1233,7 +1665,7 @@
         if (!cmd) { stopAutoTimer('Пустая команда — пропуск.'); finQ(); return; }
         maybeResniff(cmd);
         if (isDangerous(cmd)) {
-          noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + cmd + '\n');
+          noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
           stopAutoTimer();
           status.className = 'ax-exec-status ax-err';
           status.textContent = '⛔ Опасная команда: только вручную кнопкой ▶.';
@@ -1241,19 +1673,19 @@
         }
         const dup = dupAge(cmd, panelRunner());
         if (dup > 0) {
-          noteToChat('\n[LOCAL EXEC] status=skipped reason=duplicate age=' + dup + 's\n$ ' + cmd + '\n');
+          noteToChat('\n[LOCAL EXEC] status=skipped reason=duplicate age=' + dup + 's\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
           stopAutoTimer('⏭ Дубль: такая команда уже выполнялась ' + dup + 'с назад — пропуск (жми ▶ для повтора).');
           finQ(); return;
         }
         if (!bypassChecks) {
           const hist = historyAge(cmd, panelRunner());
           if (hist > 0) {
-            noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + cmd + '\n');
+            noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
             stopAutoTimer('⏭ Уже выполнялась раньше (' + fmtAge(hist) + ' назад) — пропуск (жми ▶ для повтора).');
             finQ(); return;
           }
           if (!flags.forced && Date.now() - AX_BOOT < BOOT_GRACE_MS && createdCmd && cmd === createdCmd) {
-            noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + cmd + '\n');
+            noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
             stopAutoTimer('⏭ Блок уже был на странице при загрузке — автозапуск пропущен (жми ▶).');
             finQ(); return;
           }
@@ -1294,8 +1726,10 @@
     }
 
     panel.querySelector('.ax-btn-insert').onclick = () => {
-      try { insertIntoChat('\n```text\n' + lastFormatted + '\n```\n'); } catch {}
-      silentCopy(lastFormatted);
+      // В чат уходит версия с учётом echoMode (длинные скрипты не раздувают диалог)
+      const forChat = lastChatFormatted || lastFormatted;
+      try { insertIntoChat('\n```text\n' + forChat + '\n```\n'); } catch {}
+      silentCopy(forChat);
     };
     panel.querySelector('.ax-btn-copy-out').onclick = async () => {
       const ok = await copyToClipboard(lastFormatted);
@@ -1483,6 +1917,26 @@
 
   function init() {
     console.log('[AX] AI Execute Runner загружен на ' + location.hostname);
+    // Диагностика поля ввода из консоли F12: __axDiag() — что видит расширение.
+    window.__axDiag = function () {
+      const found = findChatInputDetailed();
+      return {
+        input: describeChatInput(found),
+        shadowRoots: collectShadowRoots().length,
+        fileInputs: deepQueryAll('input[type="file"]', collectShadowRoots()).length,
+        clipboardApi: !!(navigator.clipboard && navigator.clipboard.write),
+        clipboardItem: !!window.ClipboardItem,
+        execInsertImage: (function () { try { return !!document.queryCommandSupported('insertImage'); } catch { return false; } })(),
+      };
+    };
+    // Повтор вставки последней картинки view: await __axDiag.retryView()
+    window.__axDiag.retryView = function () { return lastViewData ? insertImageIntoChat(lastViewData) : Promise.resolve(false); };
+    // Ручная вставка произвольной картинки view: await __axDiag.insertView(view)
+    window.__axDiag.insertView = function (view) { return insertImageIntoChat(view); };
+    // Пример view-объекта для ручной проверки из консоли
+    window.__axDiag.sampleView = function (dataUrl, mime) {
+      return { data_url: dataUrl, mime: mime || 'image/png', size: 0, path: 'sample.png' };
+    };
     scan(document);
     observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
     ensureDot();

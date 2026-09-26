@@ -21,7 +21,8 @@ const DEFAULTS = {
   panelSize: 'normal',          // compact | normal | large
   collapseAfterRun: false,      // сворачивать вывод после выполнения
   soundOnComplete: false,       // звук при завершении
-  browserNotify: false          // browser notification если вкладка не в фокусе
+  browserNotify: false,         // browser notification если вкладка не в фокусе
+  echoMode: 'short'             // эхо-репликация команды в чат: full | short | none
 };
 
 const axApi = typeof browser !== 'undefined' ? browser : chrome;
