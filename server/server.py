@@ -26,7 +26,7 @@ import time
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.5.3.1'
+VERSION = '2.5.3.2'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
@@ -34,6 +34,24 @@ LOG_FILE = None  # путь к файлу логов (None = только кон
 RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
 WHITELIST = None  # None = выключен; frozenset префиксов (lowercase) = включён
 _WHITELIST_META = re.compile(r'[;&|<>`]|\$\(')  # shell-метасимволы
+
+# Unicode-пробелы, которые чаты вставляют в code-блоки через &nbsp; и родственники.
+# NBSP (U+00A0) — самый частый: Python падает с "SyntaxError: invalid non-printable
+# character U+00A0", PowerShell — с "Invalid argument". Заменяем их на обычный пробел.
+_UNICODE_SPACES_RE = re.compile(r'[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]')
+# Невидимые модификаторы (zero-width space/joiner, word joiner, BOM) — удаляем совсем.
+_ZERO_WIDTH_RE = re.compile(r'[\u200b-\u200d\u2060\ufeff]')
+
+
+def normalize_whitespace(text):
+    """Чистит код от NBSP и невидимых модификаторов, которые ломают парсеры.
+    Применяется ко всем раннерам: python/node/powershell/shell."""
+    if not text:
+        return text
+    text = _UNICODE_SPACES_RE.sub(' ', text)
+    text = _ZERO_WIDTH_RE.sub('', text)
+    return text
+
 _rate_lock = threading.Lock()
 _rate_times = []  # timestamps последних запусков (для rate limit)
 VERBOSE = False  # True => логировать вообще всё, включая /ping
@@ -379,6 +397,9 @@ def execute(payload):
     if not isinstance(command, str):
         return {'ok': False, 'executed': False, 'error': 'command must be a string'}
     command = command.strip()
+    # Нормализуем Unicode-пробелы (NBSP из code-блоков чатов) ДО всех проверок:
+    # иначе whitelist и danger-patterns не срабатывают, а python падает с SyntaxError.
+    command = normalize_whitespace(command)
     # view: спец-команда просмотра изображения (до whitelist)
     if command.lower().startswith("view "):
         return _handle_view(command[5:])

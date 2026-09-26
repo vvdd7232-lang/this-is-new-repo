@@ -85,6 +85,18 @@
     ['exec-pwsh', 'powershell'],
   ]);
 
+  // Unicode-пробелы и невидимые модификаторы, которые чаты (ChatGPT/Claude)
+  // вставляют в code-блоки через &nbsp; и родственники. NBSP (U+00A0) — самый
+  // частый: Python падает с "SyntaxError: invalid non-printable character",
+  // PowerShell — с "Invalid argument". Нормализуем ещё на клиенте — иначе
+  // NBSP уходит в буфер, в историю и в дедуп автопилота.
+  const UNICODE_SPACES_RE = /[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g;
+  const ZERO_WIDTH_RE = /[\u200b-\u200d\u2060\ufeff]/g;
+  function normalizeWhitespace(text) {
+    if (!text) return text;
+    return text.replace(UNICODE_SPACES_RE, ' ').replace(ZERO_WIDTH_RE, '');
+  }
+
   // Опасные паттерны — показываем красное предупреждение в модалке.
   const DANGER_PATTERNS = [
     /rm\s+-rf?\s+[\/~]/i, /\brm\s+-rf?\s+\*/i, /:\(\)\s*\{\s*:\|:\s*&\s*\}/,
@@ -468,7 +480,7 @@
     const lines = raw.replace(/\r\n/g, '\n').split('\n');
     if (lines.length && /^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(?:execut(?:e|ion)?|exec)(?:[-:][a-z0-9_-]+)?$/i.test(lines[0].trim()))
       lines.shift();
-    return lines.join('\n').replace(/\n+$/, '');
+    return normalizeWhitespace(lines.join('\n').replace(/\n+$/, ''));
   }
 
   function isDangerous(cmd) {

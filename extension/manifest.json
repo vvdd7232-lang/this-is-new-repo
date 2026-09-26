@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Execute Runner",
-  "version": "2.5.3.1",
+  "version": "2.5.3.2",
   "description": "Выполнение команд из execute-блоков ChatGPT / Claude / Arena на локальном ПК. Нейросеть пишет ```execute — вы подтверждаете — команда выполняется локально — вывод возвращается в чат.",
   "permissions": [
     "storage",
