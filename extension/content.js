@@ -104,7 +104,7 @@
     /\bhalt\b/i, /\bpoweroff\b/i, /\bdoas\b/i,
   ];
 
-  let settings = { serverUrl: 'http://127.0.0.1:8765', timeout: 30, requireConfirm: true, maxOutputChars: 32000, autoExecute: false, autoInsert: false, autoSend: false, autoDelay: 3, looseSearch: true, autoWeak: false, maxAutoRuns: 0, defaultRunner: 'shell', showToasts: true, defaultCwd: '' };
+  let settings = { serverUrl: 'http://127.0.0.1:8765', timeout: 30, requireConfirm: true, maxOutputChars: 32000, autoExecute: false, autoInsert: false, autoSend: false, autoDelay: 3, looseSearch: true, autoWeak: false, maxAutoRuns: 0, defaultRunner: 'shell', showToasts: true, defaultCwd: '', echoMode: 'short' };
 
   // --- состояние автопилота (на одну загрузку вкладки) ---
   // Лимит автозапусков задаётся настройкой maxAutoRuns (0 = без лимита)
@@ -585,7 +585,24 @@
 
   // ---------- Вставка результата в поле ввода чата ----------
 
-  function formatResult({ command, runner, exit_code, stdout, stderr, truncated, cwd, stdoutBytes, stderrBytes, limitBytes, executed, seq, durationMs, timedOut }) {
+  // Эхо-репликация команды в сообщении о результате.
+  // echoMode:
+  //   'full'  — печатать команду целиком (как раньше)
+  //   'short' — многострочные/длинные команды схлопываются в «первая строка …(N строк, M симв.)» (по умолчанию)
+  //   'none'  — вместо тела команды только метка «(N строк, M симв.)»
+  function echoCommand(cmd, mode) {
+    const c = cmd || '';
+    if (mode === 'none') return '(команда скрыта: ' + c.split('\n').length + ' стр., ' + c.length + ' симв.)';
+    if (mode === 'full') return c;
+    // short
+    const lines = c.split('\n');
+    if (lines.length <= 1 && c.length <= 240) return c;
+    const first = (lines[0] || '').slice(0, 200);
+    return first + '\n…(команда скрыта: ' + lines.length + ' стр., ' + c.length + ' симв.)';
+  }
+
+
+  function formatResult({ command, runner, exit_code, stdout, stderr, truncated, cwd, stdoutBytes, stderrBytes, limitBytes, executed, seq, durationMs, timedOut, echoMode }) {
     const max = +settings.maxOutputChars || 0; // 0 = без лимита
     const so = stdout || '', se = stderr || '';
     let out = max > 0 ? so.slice(0, max) : so;
@@ -599,7 +616,7 @@
       ' stderr_bytes=' + (stderrBytes != null ? stderrBytes : se.length) +
       (durationMs != null ? ' dur=' + (durationMs < 1000 ? durationMs + 'ms' : (durationMs / 1000).toFixed(1) + 's') : '') +
       (clipIns ? ' insert_truncated=yes shown_chars=' + out.length + '/' + so.length : '') +
-      '\n$ ' + command + '\n';
+      '\n$ ' + echoCommand(command, echoMode) + '\n';
     if (out) txt += '--- stdout ---\n' + out + (max > 0 && so.length > max ? '\n…(обрезано вставкой: лимит ' + max + ' симв.)' : '') + '\n';
     const clipErr = max > 0 && se.length > Math.floor(max / 2);
     if (err) txt += '--- stderr ---\n' + err + (clipErr ? '\n…(обрезано вставкой: лимит ' + Math.floor(max / 2) + ' симв.)' : '') + '\n';
@@ -610,15 +627,15 @@
     return txt;
   }
 
-  function formatRunResult(cmd, runRunner, r, seq) {
+  function formatRunResult(cmd, runRunner, r, seq, echoMode) {
     r = r || {};
     if (r.view) {
       var v = r.view;
-      var head = '[LOCAL EXEC RESULT] seq=' + (seq || 0) + ' status=done view=' + v.path + '\n$ ' + cmd + '\n';
+      var head = '[LOCAL EXEC RESULT] seq=' + (seq || 0) + ' status=done view=' + v.path + '\n$ ' + echoCommand(cmd, echoMode) + '\n';
       var body = '--- view ---\n\ud83d\uddbc\ufe0f ' + v.path + ' (' + v.mime + ', ' + v.size + ' B)\n';
       return head + body;
     }
-    return formatResult({ command: cmd, runner: r.runner || runRunner, exit_code: r.exit_code, stdout: r.stdout || '', stderr: r.stderr || '', truncated: r.truncated, cwd: r.cwd, stdoutBytes: r.stdout_bytes, stderrBytes: r.stderr_bytes, limitBytes: r.limit_bytes, executed: r.executed, seq: seq, durationMs: r.duration_ms, timedOut: r.timed_out });
+    return formatResult({ command: cmd, runner: r.runner || runRunner, exit_code: r.exit_code, stdout: r.stdout || '', stderr: r.stderr || '', truncated: r.truncated, cwd: r.cwd, stdoutBytes: r.stdout_bytes, stderrBytes: r.stderr_bytes, limitBytes: r.limit_bytes, executed: r.executed, seq: seq, durationMs: r.duration_ms, timedOut: r.timed_out, echoMode: echoMode });
   }
 
   // Видимость через геометрию (offsetParent врёт для position:fixed)
@@ -780,7 +797,7 @@
   // toastText: undefined = стандартный тост, строка = свой текст, null = тихо
   function insertIntoChat(text, toastText) {
     const input = findChatInput();
-    if (!input) { if (toastText !== null) toast('Поле ввода чата не найдено — результат скопирован'); return null; }
+    if (!input) { silentCopy(text); if (toastText !== null) toast('Поле ввода чата не найдено — результат скопирован в буфер'); return null; }
     try {
       input.focus();
       if (input.tagName === 'TEXTAREA') {
@@ -977,7 +994,7 @@
           return;
         }
         markExecuted(command, r.runner || runRunner);
-        const formatted = formatRunResult(command, runRunner, r, mySeq);
+        const formatted = formatRunResult(command, runRunner, r, mySeq, 'full');
         showResultModal(formatted, r.exit_code === 0);
       }
     );
@@ -1416,7 +1433,8 @@
     const status = panel.querySelector('.ax-exec-status');
     const outBox = panel.querySelector('.ax-exec-output');
     const after = panel.querySelector('.ax-exec-after');
-    let lastFormatted = '';
+    let lastFormatted = '';      // полная версия — для панели под блоком
+    let lastChatFormatted = '';  // с учётом echoMode — для кнопки «📥 В чат» и авто-вставки
 
     function renderPreview() {
       const box = panel.querySelector('.ax-exec-cmd-preview');
@@ -1443,9 +1461,13 @@
     }
 
     async function doRun(cmdOverride, isAuto, onDone) {
-      const fin = () => { running = false; try { onDone && onDone(); } catch {} };
-      if (running) { toast('Уже выполняется — дождись результата'); fin(); return; }
+      const done = () => { try { onDone && onDone(); } catch {} };
+      // Если команда уже выполняется — НЕ трогаем running (иначе гард снимается
+      // и параллельный вызов запустит вторую команду одновременно), но всё
+      // равно уведомляем колбэк: очередь автопилота ждёт onDone, иначе залипнет.
+      if (running) { toast('Уже выполняется — дождись результата'); done(); return; }
       running = true;
+      const fin = () => { running = false; done(); };
       if (!isAuto) { loopBlocked = false; lastAutoCommands = []; }
       // команду перечитываем из блока в момент запуска (блок мог достримиться после создания панели)
       const cmd = ((cmdOverride != null ? cmdOverride : getCodeText(pre)) || '').trim();
@@ -1471,20 +1493,30 @@
       outBox.style.display = 'none';
       after.style.display = 'none';
 
-      if (settings.autoInsert) {
-        noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + cmd + '\n');
-      }
+      // status=running шлём ТОЛЬКО если команда реально ещё не завершилась.
+      // Раньше для view и быстрых команд в чат уходило ложное «running», а
+      // «done» прилетал тем же сообщением — ИИ не понимал, чего ждать.
+      // Ждём 800 мс: если ответ успел прийти — running не отправляем вообще.
+      let runFinished = false;
+      let runStatusSent = false;
+      const runStatusTimer = settings.autoInsert ? setTimeout(() => {
+        if (runFinished || runStatusSent) return;
+        runStatusSent = true;
+        noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
+      }, 800) : null;
       safeSend(
         { type: 'AX_RUN', payload: { command: cmd, runner: runRunner, timeout: settings.timeout, cwd: settings.defaultCwd || undefined } },
         (resp) => {
+          runFinished = true;
+          if (runStatusTimer) clearTimeout(runStatusTimer);
           btnRun.disabled = false;
           btnRun.textContent = '▶ Выполнить';
           if (!resp) {
-            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + cmd + '\nнет ответа от расширения\n');
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + echoCommand(cmd, settings.echoMode) + '\nнет ответа от расширения\n');
             status.className = 'ax-exec-status ax-err'; status.textContent = '❌ Нет ответа от расширения.'; fin(); return;
           }
           if (!resp.ok) {
-            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + cmd + '\n' + resp.error + '\n');
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=error\n$ ' + echoCommand(cmd, settings.echoMode) + '\n' + resp.error + '\n');
             const looksConn = /fetch|abort|network|ожидания|ECONN|Failed/i.test(resp.error || '');
             status.className = 'ax-exec-status ax-err';
             status.textContent = '❌ Ошибка: ' + resp.error + (looksConn ? ' — запущен ли server.py?' : '');
@@ -1496,7 +1528,7 @@
           const r = resp.result || {};
           // whitelist на сервере заблокировал команду - не ошибка, но и не выполнено
           if (r.blocked) {
-            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + cmd + '\n' + (r.error || '') + '\n');
+            noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + echoCommand(cmd, settings.echoMode) + '\n' + (r.error || '') + '\n');
             status.className = 'ax-exec-status ax-err';
             status.textContent = '\u26d4 Whitelist: ' + (r.error || 'команда не разрешена');
             toast('\u26d4 ' + (r.error || 'Заблокировано whitelist'));
@@ -1504,7 +1536,8 @@
             return;
           }
           markExecuted(cmd, r.runner || runRunner);
-          lastFormatted = formatRunResult(cmd, runRunner, r, mySeq);
+          lastFormatted = formatRunResult(cmd, runRunner, r, mySeq, 'full');
+          lastChatFormatted = formatRunResult(cmd, runRunner, r, mySeq, settings.echoMode);
           if (r.view) {
             try { renderView(panel, r.view); } catch (e) {}
             // await невозможен (колбэк sync), поэтому ловим отказ явно
@@ -1526,9 +1559,9 @@
           // --- автопилот: автовставка + автоотправка ---
           // Отправку ждём до конца: следующий результат встанет в очередь только
           // после неё, иначе быстрые команды склеивались бы в одно сообщение.
-          if (settings.autoInsert && lastFormatted) {
+          if (settings.autoInsert && lastChatFormatted) {
             try {
-              const input = insertIntoChat('\n```text\n' + lastFormatted + '\n```\n');
+              const input = insertIntoChat('\n```text\n' + lastChatFormatted + '\n```\n');
               if (input && settings.autoSend) { autoSendToChat(input, fin); return; }
             } catch (e) { console.warn('[AX] insert:', e); }
           }
@@ -1632,7 +1665,7 @@
         if (!cmd) { stopAutoTimer('Пустая команда — пропуск.'); finQ(); return; }
         maybeResniff(cmd);
         if (isDangerous(cmd)) {
-          noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + cmd + '\n');
+          noteToChat('\n[LOCAL EXEC] status=skipped reason=dangerous-manual-only\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
           stopAutoTimer();
           status.className = 'ax-exec-status ax-err';
           status.textContent = '⛔ Опасная команда: только вручную кнопкой ▶.';
@@ -1640,19 +1673,19 @@
         }
         const dup = dupAge(cmd, panelRunner());
         if (dup > 0) {
-          noteToChat('\n[LOCAL EXEC] status=skipped reason=duplicate age=' + dup + 's\n$ ' + cmd + '\n');
+          noteToChat('\n[LOCAL EXEC] status=skipped reason=duplicate age=' + dup + 's\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
           stopAutoTimer('⏭ Дубль: такая команда уже выполнялась ' + dup + 'с назад — пропуск (жми ▶ для повтора).');
           finQ(); return;
         }
         if (!bypassChecks) {
           const hist = historyAge(cmd, panelRunner());
           if (hist > 0) {
-            noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + cmd + '\n');
+            noteToChat('\n[LOCAL EXEC] status=skipped reason=already-executed age=' + hist + 's\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
             stopAutoTimer('⏭ Уже выполнялась раньше (' + fmtAge(hist) + ' назад) — пропуск (жми ▶ для повтора).');
             finQ(); return;
           }
           if (!flags.forced && Date.now() - AX_BOOT < BOOT_GRACE_MS && createdCmd && cmd === createdCmd) {
-            noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + cmd + '\n');
+            noteToChat('\n[LOCAL EXEC] status=skipped reason=old-block (был на странице при загрузке)\n$ ' + echoCommand(cmd, settings.echoMode) + '\n');
             stopAutoTimer('⏭ Блок уже был на странице при загрузке — автозапуск пропущен (жми ▶).');
             finQ(); return;
           }
@@ -1693,8 +1726,10 @@
     }
 
     panel.querySelector('.ax-btn-insert').onclick = () => {
-      try { insertIntoChat('\n```text\n' + lastFormatted + '\n```\n'); } catch {}
-      silentCopy(lastFormatted);
+      // В чат уходит версия с учётом echoMode (длинные скрипты не раздувают диалог)
+      const forChat = lastChatFormatted || lastFormatted;
+      try { insertIntoChat('\n```text\n' + forChat + '\n```\n'); } catch {}
+      silentCopy(forChat);
     };
     panel.querySelector('.ax-btn-copy-out').onclick = async () => {
       const ok = await copyToClipboard(lastFormatted);

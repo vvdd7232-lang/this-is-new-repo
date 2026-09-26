@@ -251,6 +251,15 @@
       <div class="desc">Сколько символов результата вставлять в поле ввода. При обрезке в тексте есть пометка с лимитом.</div>
     </div>
     <div class="desc">Лимит на стороне сервера (по умолчанию 1 МБ): <code>python server.py --max-output 0</code></div>
+    <div class="field">
+      <label class="title">Эхо-репликация команды в чат</label>
+      <div class="seg" id="echoMode">
+        <button type="button" data-v="full">📜 Полная</button>
+        <button type="button" data-v="short">✂️ Кратко (рекомендуется)</button>
+        <button type="button" data-v="none">🚫 Скрыть</button>
+      </div>
+      <div class="desc">Что попадает в поле «$ …» сообщения <code>[LOCAL EXEC RESULT]</code>. <b>Полная</b> — как раньше, весь текст команды. <b>Кратко</b> — многострочные скрипты (200+ строк) заменяются на первую строку + пометку «…(N стр., M симв.)». <b>Скрыть</b> — вместо команды только счётчик. Экономит место в диалоге и снижает риск, что длинный скрипт зрительно «порвётся».</div>
+    </div>
   </div></details>
 
   <details class="card" open>

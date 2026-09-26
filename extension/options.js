@@ -40,6 +40,7 @@ const DEFAULTS = {
   collapseAfterRun: false,
   soundOnComplete: false,
   browserNotify: false,
+  echoMode: 'short',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -89,6 +90,7 @@ async function load() {
   $('collapseAfterRun').checked = d.collapseAfterRun === true;
   $('soundOnComplete').checked = d.soundOnComplete === true;
   $('browserNotify').checked = d.browserNotify === true;
+  setSeg('echoMode', d.echoMode || 'short');
   applyTheme(d.uiTheme || 'auto');
   updateWarn();
   try {
@@ -193,6 +195,7 @@ async function importSettings(file) {
 // --- Init UI (сегменты, экспорт/импорт, dirty) ---
 bindSeg('uiTheme', (v) => applyTheme(v));
 bindSeg('panelSize');
+bindSeg('echoMode');
 const _expBtn = document.getElementById('exportBtn');
 if (_expBtn) _expBtn.onclick = exportSettings;
 const _impBtn = document.getElementById('importBtn');
@@ -235,6 +238,7 @@ async function save() {
     showToasts: $('showToasts').checked,
     defaultCwd: $('defaultCwd').value.trim(),
     authToken: $('authToken').value.trim(),
+    echoMode: getSeg('echoMode') || 'short',
   });
   updateWarn();
   clearDirty();
