@@ -18,3 +18,6 @@ whitelist*.txt
 
 # Тесты расширения
 tests/node_modules/
+
+# Локальные бэкапы артефактов
+*.bak
