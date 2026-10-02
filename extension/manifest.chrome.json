@@ -43,6 +43,10 @@
         "*://www.google.ru/*"
       ],
       "js": [
+        "ax-detector.js",
+        "ax-core.js",
+        "ax-view.js",
+        "ax-panel.js",
         "content.js"
       ],
       "css": [

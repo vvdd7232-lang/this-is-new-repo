@@ -18,8 +18,12 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const CONTENT_JS = path.join(__dirname, '..', 'extension', 'content.js');
-const code = fs.readFileSync(CONTENT_JS, 'utf8');
+// Модули content-script'а. Порядок важен: detector -> core -> view -> panel -> main.
+// Раньше был один content.js; после рефакторинга логика разложена по файлам,
+// и тест грузит их все в один jsdom-контекст.
+const EXT_DIR = path.join(__dirname, '..', 'extension');
+const AX_FILES = ['ax-detector.js', 'ax-core.js', 'ax-view.js', 'ax-panel.js', 'content.js'];
+const AX_SOURCES = AX_FILES.map((f) => ({ name: f, code: fs.readFileSync(path.join(EXT_DIR, f), 'utf8') }));
 
 // Мини-картинка 1x1 PNG
 const PNG_B64 =
@@ -173,7 +177,12 @@ function makeDom(html, opts) {
   });
   toastObs.observe(window.document.documentElement, { childList: true, subtree: true, characterData: true });
 
-  window.eval(code);
+  // Прогоняем ВСЕ модули в одном контексте jsdom в правильном порядке.
+  // ax-detector UMD выставит window.AXDetector, остальные — расширят window.AX.
+  for (const mod of AX_SOURCES) {
+    try { window.eval(mod.code); }
+    catch (e) { throw new Error('Ошибка загрузки ' + mod.name + ': ' + e.message); }
+  }
 
   // init() мог отложиться до DOMContentLoaded (jsdom отдаёт readyState=loading
   // сразу после eval) — дожидаемся, пока расширение выставит диагностический хук.

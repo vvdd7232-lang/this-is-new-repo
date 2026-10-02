@@ -156,6 +156,8 @@ bMenus.onClicked.addListener((info, tab) => {
 });
 
 // Если content-script ещё не внедрён (вкладка открыта до установки) — внедряем и повторяем
+// Порядок файлов важен: детектор -> ядро -> view -> panel -> main.
+const AX_CONTENT_FILES = ['ax-detector.js', 'ax-core.js', 'ax-view.js', 'ax-panel.js', 'content.js'];
 function axInjectAndRetry(tabId, payload) {
   try {
     const b = typeof browser !== 'undefined' ? browser : chrome;
@@ -163,7 +165,7 @@ function axInjectAndRetry(tabId, payload) {
       const cssPr = b.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
       if (cssPr && cssPr.catch) cssPr.catch(() => {});
     } catch (e) { /* ignore */ }
-    const scrPr = b.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    const scrPr = b.scripting.executeScript({ target: { tabId }, files: AX_CONTENT_FILES });
     if (scrPr && scrPr.then) {
       scrPr.then(() => {
         setTimeout(() => {

@@ -27,7 +27,11 @@ ai-execute-extension/
 │   ├── manifest.json     ← манифест Firefox MV3
 │   ├── manifest.chrome.json ← манифест для Chrome/Edge (service_worker)
 │   ├── background.js     ← мост к локальному серверу (Firefox + Chrome)
-│   ├── content.js        ← ищет execute-блоки, кнопки, вставка в чат
+│   ├── ax-detector.js    ← чистые функции детекции (тестируются в Node)
+│   ├── ax-core.js        ← namespace AX, утилиты, поле ввода, форматирование
+│   ├── ax-view.js        ← вставка картинок (view) + превью под панелью
+│   ├── ax-panel.js       ← панель под блоком, подтверждение, автопилот
+│   ├── content.js        ← точка входа: scan, observer, диагностика, бейдж
 │   ├── content.css
 │   ├── popup.html / popup.js  ← быстрые настройки + проверка сервера
 │   ├── options.html / options.js  ← полная страница настроек (все параметры)
@@ -35,6 +39,11 @@ ai-execute-extension/
 │   └── icons/
 ├── server/
 │   └── server.py         ← локальный выполнитель (Python, без зависимостей)
+├── tests/                ← автотесты (Node + Python)
+│   ├── sniff-runner.test.js   ← сниффер языка (32 проверки)
+│   ├── detect-runner.test.js  ← распознавание execute-блоков (22)
+│   ├── view-insert.test.js    ← вставка картинок в чат (46)
+│   └── test_server.py         ← сервер: whitelist, decoding, view (30)
 ├── SYSTEM_PROMPT.md      ← ⭐ промпт для ИИ (скопируй в чат)
 ├── TROUBLESHOOTING.md    ← разбор проблем и обходы
 ├── LICENSE
@@ -242,6 +251,31 @@ view C:\Users\me\screenshot.png
 
 ---
 
+
+## 🧪 Тесты
+
+```bash
+cd tests
+npm install          # один раз (jsdom)
+npm test             # JS: sniffRunner + detectRunner + view
+python -m unittest tests.test_server -v   # Python: сервер
+```
+
+## 🗂 Структура модулей content-script
+
+После рефакторинга логика расширения разложена по файлам — так проще править
+и тестировать. Порядок загрузки важен и задан в manifest.json:
+
+1. **ax-detector.js** — чистые функции без побочек (сниффер языка, детекция
+   блоков, опасные паттерны). UMD: работает и в браузере, и в Node — поэтому
+   покрыт юнит-тестами.
+2. **ax-core.js** — namespace `AX`: настройки, безопасная отправка сообщений,
+   работа с полем ввода чата, форматирование результата, история и память среды.
+3. **ax-view.js** — всё про `view`: вставка картинки в чат (file-input → paste →
+   execCommand → clipboard) и превью под панелью.
+4. **ax-panel.js** — панель под блоком, модалка подтверждения, очередь
+   автозапусков и логика автопилота.
+5. **content.js** — точка входа: scan, MutationObserver, диагностика, бейдж.
 ## 📝 Лицензия
 
 См. файл [LICENSE](LICENSE). Используешь на свой риск — всегда проверяй команды перед запуском 😉

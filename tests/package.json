@@ -2,10 +2,14 @@
   "name": "ai-execute-extension-tests",
   "version": "1.0.0",
   "private": true,
-  "description": "Тесты детектора поля ввода чата и вставки картинки (view) — extension/content.js",
+  "description": "Тесты detector (sniffRunner, detectRunner) и вставки картинки (view) для content-script",
   "main": "view-insert.test.js",
   "scripts": {
-    "test": "node view-insert.test.js"
+    "test": "node sniff-runner.test.js && node detect-runner.test.js && node view-insert.test.js",
+    "test:sniff": "node sniff-runner.test.js",
+    "test:detect": "node detect-runner.test.js",
+    "test:view": "node view-insert.test.js",
+    "test:server": "python -m unittest tests.test_server -v"
   },
   "license": "MIT",
   "type": "commonjs",
