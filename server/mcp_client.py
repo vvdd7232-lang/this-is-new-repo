@@ -1,4 +1,4 @@
-"""MCP-клиент для AI Execute Runner (экспериментальная функция).
+﻿"""MCP-клиент для AI Execute Runner (экспериментальная функция).
 
 Зачем он здесь
 --------------
@@ -21,12 +21,13 @@ server.py — он и так локальный, и так уже выполня
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
 
 PROTOCOL_VERSION = '2024-11-05'
-CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.8.1'}
+CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.8.2'}
 DEFAULT_TIMEOUT = 30.0
 MAX_TOOLS_PER_SERVER = 200
 
@@ -105,9 +106,14 @@ class McpServerClient:
             # переполнится и сервер упадёт на записи — поэтому сразу читаем
             # stderr в фоне и складываем в кольцевой буфер для диагностики.
             env.setdefault('PYTHONIOENCODING', 'utf-8')
+            # Разрешаем команду через PATH. Без этого на Windows не запускается
+            # практически ничего node-based: там лежит реальный файл npx.CMD,
+            # а Popen ищет точное имя 'npx' и падает с FileNotFoundError —
+            # то есть «команда не найдена» при установленном nodejs.
+            exe = shutil.which(self.command) or self.command
             try:
                 self.proc = subprocess.Popen(
-                    [self.command] + self.args,
+                    [exe] + self.args,
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     cwd=self.cwd or None, env=env, bufsize=0)

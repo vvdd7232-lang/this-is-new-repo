@@ -1,6 +1,7 @@
 """Тесты MCP-клиента: протокол, конфиг, отказоустойчивость, таймауты."""
 import json
 import os
+import shutil
 import sys
 import unittest
 
@@ -116,6 +117,39 @@ class ProtocolTests(unittest.TestCase):
         client.start()
         client.stop()
         client.stop()  # не должно бросать
+class PathResolutionTests(unittest.TestCase):
+    """Регрессия: на Windows команды-обёртки (npx.CMD, uv и т.п.) не запускались.
+
+    Popen ищет файл по точному имени, а в Windows реальный файл — npx.CMD.
+    Без shutil.which пользователь с установленным nodejs получал
+    «команда не найдена» на совершенно рабочей системе.
+    """
+
+    @unittest.skipUnless(shutil.which('npx'), 'npx не установлен')
+    def test_bare_npx_starts(self):
+        client = mcp.McpServerClient(name='npx-test', command='npx',
+                                     args=['--version'], timeout=25)
+        self.addCleanup(client.stop)
+        try:
+            client.start()
+        except mcp.McpError as e:
+            self.fail('npx не запустился, хотя он есть в PATH: %s' % e)
+        self.assertTrue(client.is_running())
+
+    def test_which_resolves_batch_wrapper(self):
+        found = shutil.which('npx')
+        if not found:
+            self.skipTest('npx не установлен')
+        # Разрешённый путь — это .cmd/.exe с расширением, а не голое имя.
+        self.assertNotEqual(found, 'npx')
+
+    def test_missing_command_still_reports_clearly(self):
+        client = mcp.McpServerClient(name='x', command='нет-такой-команды-12345')
+        with self.assertRaises(mcp.McpError) as ctx:
+            client.start()
+        self.assertIn('не найдена', str(ctx.exception))
+
+
 class RegistryTests(unittest.TestCase):
     def setUp(self):
         self.path = os.path.join(HERE, '_tmp_reg.json')

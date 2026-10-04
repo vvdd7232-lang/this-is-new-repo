@@ -1,0 +1,981 @@
+
+> ai-execute-extension-tests@1.0.0 test
+> node sniff-runner.test.js && node detect-runner.test.js && node view-insert.test.js && node options-bindings.test.js && node panel-autopilot.test.js && node failure-explain.test.js && node ui-system.test.js && node features.test.js && node bridge.test.js && node mcp.test.js
+
+
+sniffRunner — python:
+  ✓ import os
+  ✓ from x import y
+  ✓ def
+  ✓ async def
+  ✓ print(...)
+  ✓ print ...
+  ✓ class Foo:
+  ✓ @decorator
+  ✓ if __name__
+  ✓ комментарий + import
+  ✓ // комментарий + def
+
+sniffRunner — node:
+  ✓ console.log
+  ✓ require
+  ✓ const = require
+  ✓ import from
+  ✓ export default
+  ✓ async function
+
+sniffRunner — powershell:
+  ✓ Get-ChildItem
+  ✓ New-Item
+  ✓ param(...)
+  ✓ $var =
+  ✓ $PSVersionTable
+  ✓ [System.IO.File]::
+  ✓ function Verb-Noun
+
+sniffRunner — НЕ распознаём (shell / null):
+  ✓ ls -la
+  ✓ git status
+  ✓ echo hi
+  ✓ пустая строка
+  ✓ только комментарий
+  ✓ только пустые строки
+
+sniffRunner — блочные комментарии:
+  ✓ <# ... #> + код
+  ✓ /* ... */ + код
+
+dangerLevel — hard (необратимое, блокирует автопилот):
+  ✓ rm -rf /
+  ✓ sudo apt
+  ✓ mkfs
+  ✓ format C:
+  ✓ curl | bash
+  ✓ git push --force
+  ✓ DROP TABLE
+  ✓ chmod -R 777
+
+dangerLevel — soft (динамический код, НЕ блокирует автопилот):
+  ✓ eval(x)
+  ✓ exec(open)
+  ✓ Invoke-Expression
+  ✓ Invoke-Expression (дефис)
+
+dangerLevel — чисто (null):
+  ✓ ls -la
+  ✓ git status
+  ✓ python script
+  ✓ пустая
+
+isHardDangerous — именно то, что блокирует автопилот:
+  ✓ eval → не hard
+  ✓ exec → не hard
+  ✓ Invoke-Expr → не hard
+  ✓ rm -rf → hard
+  ✓ sudo → hard
+
+isDangerous — совместимость (hard ИЛИ soft):
+  ✓ eval → true
+  ✓ rm -rf → true
+  ✓ ls → false
+
+stripStringLiterals + dangerLevel — упоминания в строках не блокируют:
+  ✓ литерал двойные кавычки
+  ✓ литерал одинарные кавычки
+  ✓ eval внутри строки
+  ✓ backtick-строка
+  ✓ real sudo вне строки — hard
+  ✓ real eval вне строки — soft
+
+stripStringLiterals — прямое поведение:
+  ✓ убирает двойные
+  ✓ убирает одинарные
+  ✓ не трогает код вне строк
+  ✓ пустая строка
+  ✓ heredoc вырезан
+
+dangerLevel — обход кавычками закрыт (было null, стало hard):
+  ✓ обход: rm -rf "/"
+  ✓ обход: rm -rf '/'
+  ✓ обход: rm -rf "$HOME"
+  ✓ обход: rm -rf "~"
+  ✓ обход: bash -c "rm -rf /"
+  ✓ обход: sh -c "rm -rf /"
+  ✓ обход: python -c "import shutil; shutil.rmtree(chr(47))"
+  ✓ обход: python -c "import shutil, os; shutil.rmtree('/')"
+  ✓ обход: node -e "require('fs').rmSync('/', {recursive:true})"
+
+dangerLevel — PowerShell/Windows-деструктив (было null, стало hard):
+  ✓ windows/ps: Remove-Item -Recurse -Force $HOME
+  ✓ windows/ps: Remove-Item "C:\Users\me" -Recurse -Force
+  ✓ windows/ps: Remove-Item C:\temp -Recurse
+  ✓ windows/ps: Format-Volume -DriveLetter D -Force
+  ✓ windows/ps: Clear-Disk -Number 1 -RemoveData
+  ✓ windows/ps: Initialize-Disk -Number 1
+  ✓ windows/ps: diskpart /s wipe.txt
+  ✓ windows/ps: rmdir /s /q C:\Users\me\Desktop
+  ✓ windows/ps: reg delete HKLM\Software\Foo /f
+  ✓ windows/ps: bcdedit /set safeboot minimal
+  ✓ windows/ps: taskkill /f /im explorer.exe
+  ✓ windows/ps: vssadmin delete shadows /all
+  ✓ windows/ps: Stop-Computer
+  ✓ windows/ps: Restart-Computer -Force
+  ✓ windows/ps: git clean -fdx
+  ✓ windows/ps: git reset --hard HEAD~50
+
+dangerLevel — уборка в рабочем каталоге НЕ пугает автопилот (регрессия на ложные срабатывания):
+  ✓ не hard: rm -rf ./node_modules
+  ✓ не hard: rm -rf build/
+  ✓ не hard: rm -rf ./dist
+  ✓ не hard: rm -rf ./*
+  ✓ не hard: rm -rf /tmp/my-build
+  ✓ не hard: rm -rf "C:\build\out"
+  ✓ не hard: rm -rf --help
+  ✓ не hard: Remove-Item .\build -Force
+  ✓ не hard: Get-ChildItem -Recurse | Select-Object Name
+  ✓ не hard: python -c "print('rm -rf /')"
+  ✓ не hard: echo "drop table" > notes.txt
+  ✓ литерал с опасным словом в записи файла остаётся null
+
+dangerLevel — упоминания в поиске/тестах НЕ блокируют автопилот
+(подписи-команды обязаны стоять в начале команды, а не внутри аргумента)
+  ✓ не hard: grep -r "Remove-Item -Recurse" .
+  ✓ не hard: git log --grep="shutil.rmtree"
+  ✓ не hard: python -m pytest tests/ -k rmtree
+  ✓ не hard: git commit -m "fix: rm -rf / handling in docs"
+  ✓ не hard: echo "rm -rf /" > script.sh
+  ✓ не hard: Select-String -Path *.md -Pattern "Format-Volume"
+  ✓ не hard: python -c "import shutil; print(shutil.which('git'))"
+
+unquotedSegments — фрагменты вне кавычек:
+  ✓ литерал вырезан
+  ✓ код вне кавычек сохранён
+  ✓ два литерала
+
+ИТОГО: 114 passed, 0 failed
+
+detectRunner — класс language-* на <code>:
+  ✓ language-execute
+  ✓ language-execute-python
+  ✓ language-execute-js
+  ✓ language-execute-pwsh
+
+detectRunner — класс lang-* на <pre>:
+  ✓ lang-execute
+
+detectRunner — data-атрибуты:
+  ✓ pre[data-language]
+  ✓ code[data-lang]
+
+detectRunner — маркер #!execute в первой строке:
+  ✓ #!execute + shell
+  ✓ #!execute-python
+  ✓ // execute-js
+
+detectRunner — маркер рядом (фоллбэк fuzzy):
+  ✓ соседний span "Execute"
+  ✓ "Execute • Copy" → shell (без python-подсказки)
+  ✓ "Execute python" → python
+
+detectRunner — НЕ распознаём:
+  ✓ language-python (без execute)
+  ✓ language-bash
+  ✓ голый <pre> без метки
+
+getCodeText — снятие маркера первой строки:
+  ✓ маркер снят
+  ✓ без маркера — текст не тронут
+  ✓ маркер с суффиксом снят
+
+detectFallback — текстовая метка рядом (weak/strong):
+  ✓ strong (одно слово)
+  ✓ weak (в предложении)
+  ✓ нет метки → null
+
+ИТОГО: 22 passed, 0 failed
+
+[1] DeepSeek: textarea[name="search"] вместо contenteditable
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   поле ввода найдено
+  ok   это TEXTAREA, а не contenteditable
+  ok   name = search
+  ok   isContentEditable = false (DeepSeek не contenteditable)
+  ok   найден скрытый input[type=file]
+
+[2] Ловушка DeepSeek: textarea[name="user query"] игнорируется
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   выбран композер, а не поле правки
+  ok   bottom = 640 (нижнее поле)
+
+[3] Несколько contenteditable: выбирается самое нижнее
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   поле найдено
+  ok   выбран самый нижний (bottom=760)
+
+[4] В одной нижней полосе выбирается самый большой элемент
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   выбран широкий композер (width=800)
+
+[5] Активное поле пользователя не перебивается
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   остался на активном textarea
+
+[6] Нет поля ввода — честный тост, без ложного "вставлено"
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   поле не найдено
+  ok   file input не найдено
+[AX][view] поле ввода: {"found":false,"url":"https://chat.deepseek.com/"}
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   вставка вернула false
+  ok   тост НЕ содержит "вставлена в чат"
+
+[7] DeepSeek: картинка реально доходит до скрытого input[type=file]
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] поле ввода: {"found":true,"site":"DeepSeek","selector":"textarea[name=\"search\"]","tag":"TEXTAREA","id":"","name":"search","placeholder":"","contenteditable":null,"isContentEditable":false,"className":"","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: screen.png | image/png | 70 B
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] file-input: отправлен, подтверждён=true
+  ok   вставка вернула true
+  ok   событие change отправлено ровно один раз
+  ok   input тоже отправлен (React читает change)
+  ok   имя файла = screen.png
+  ok   mime = image/png
+  ok   размер файла > 0
+  ok   в DOM появился чип превью
+  ok   тост сообщает о вставке
+
+[8] Нормализация mime: 'image/svg+xml' -> файл logo.svg
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] поле ввода: {"found":true,"site":"DeepSeek","selector":"textarea[name=\"search\"]","tag":"TEXTAREA","id":"","name":"search","placeholder":"","contenteditable":null,"isContentEditable":false,"className":"","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: logo.svg | image/svg+xml | 67 B
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] file-input: отправлен, подтверждён=false
+  ok   файл назван logo.svg, а не logo.image.svg+xml
+  ok   mime сохранён как image/svg+xml
+
+[9] jpeg -> .jpg (DeepSeek ждёт расширения в accept)
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] поле ввода: {"found":true,"site":"DeepSeek","selector":"textarea[name=\"search\"]","tag":"TEXTAREA","id":"","name":"search","placeholder":"","contenteditable":null,"isContentEditable":false,"className":"","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: photo.jpg | image/jpeg | 4 B
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] file-input: отправлен, подтверждён=false
+  ok   имя оканчивается на .jpg
+  ok   нет ".image." в имени
+
+[10] Contenteditable без file-input и без onPaste: вставка честно проваливается
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] поле ввода: {"found":true,"site":"Claude","selector":"div.ProseMirror[contenteditable=\"true\"]","tag":"DIV","id":"","name":"","placeholder":"","contenteditable":"true","isContentEditable":true,"className":"ProseMirror","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: shot.png | image/png | 70 B
+[AX][view] file-input не найден
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] paste: ok=false (событие отправлено, но DOM не изменился)
+[AX][view] execCommand insertImage: ok=false (execCommand: TypeError: document.execCommand is not a function)
+[AX][view] clipboard: ok=false (Clipboard API недоступен)
+  ok   вставка НЕ объявлена успешной
+  ok   тост не содержит "вставлена в чат"
+  ok   тост предлагает ручной вариант
+
+[11] Contenteditable с onPaste-обработчиком: paste-путь работает
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] поле ввода: {"found":true,"site":"contenteditable","selector":"div[contenteditable=\"true\"]","tag":"DIV","id":"","name":"","placeholder":"","contenteditable":"true","isContentEditable":true,"className":"","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: shot.png | image/png | 70 B
+[AX][view] file-input не найден
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX][view] paste: ok=true
+  ok   вставка вернула true
+  ok   сайт получил файл с правильным именем
+
+[12] Повторный вызов: lastViewData и ретрай
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chat.deepseek.com
+[AX] AI Execute Runner загружен на chat.deepseek.com
+  ok   retryView без предыдущей картинки = false
+[AX][view] поле ввода: {"found":true,"site":"DeepSeek","selector":"textarea[name=\"search\"]","tag":"TEXTAREA","id":"","name":"search","placeholder":"","contenteditable":null,"isContentEditable":false,"className":"","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: a.png | image/png | 70 B
+[AX][view] file-input: отправлен, подтверждён=false
+  ok   первая вставка дошла до file-input
+[AX][view] поле ввода: {"found":true,"site":"DeepSeek","selector":"textarea[name=\"search\"]","tag":"TEXTAREA","id":"","name":"search","placeholder":"","contenteditable":null,"isContentEditable":false,"className":"","bottom":640,"width":800,"height":40,"candidates":1}
+[AX][view] файл: a.png | image/png | 70 B
+[AX][view] file-input: отправлен, подтверждён=false
+  ok   retryView повторяет вставку
+  ok   retryView вернул true
+
+[13] Arena: ProseMirror contenteditable c role="textbox"
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на lmarena.ai
+  ok   поле найдено
+  ok   это DIV (contenteditable)
+  ok   isContentEditable = true
+  ok   выбран композер, а не contenteditable=false
+  ok   class = ProseMirror
+
+[14] Arena: два contenteditable (правка поста + композер) — берём нижний
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на arena.ai
+  ok   выбран нижний композер (bottom=760)
+  ok   width = 1200 (широкий композер)
+
+[15] Arena: картинка уходит в paste-путь (onPaste с файлами)
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на lmarena.ai
+[AX][view] поле ввода: {"found":true,"site":"Claude","selector":"div.ProseMirror[contenteditable=\"true\"]","tag":"DIV","id":"","name":"","placeholder":"","contenteditable":"true","isContentEditable":true,"className":"ProseMirror","bottom":760,"width":1200,"height":60,"candidates":1}
+[AX][view] файл: arena.png | image/png | 70 B
+[AX][view] file-input не найден
+[AX] AI Execute Runner загружен на lmarena.ai
+[AX] AI Execute Runner загружен на arena.ai
+[AX] AI Execute Runner загружен на lmarena.ai
+[AX][view] paste: ok=true
+  ok   вставка вернула true
+  ok   чип превью появился
+  ok   тост сообщает о вставке
+
+======================================================
+Итог: 46 ok, 0 fail
+Все проверки прошли.
+
+[1] options.js: блок инициализации на верхнем уровне
+  ok   load() реально выполнился
+  ok   load() дошёл до проверки сервера (PING)
+
+[2] Сегменты (тема/размер/эхо) действительно подключены
+  ok   клик по «Тёмная» переключил класс .on
+  ok   тема применилась к документу
+  ok   выбор темы запомнен для следующего открытия (без мигания)
+  ok   клик по «Компактный» переключил .on
+  ok   клик по «Скрыть» переключил .on
+
+[3] Индикатор несохранённых изменений (dirty dot)
+  ok   точка «есть несохранённые изменения» появилась
+
+[4] Сохранение пишет сегменты и токен в нужные области storage
+  ok   echoMode ушёл в sync как none
+  ok   uiTheme ушёл в sync как dark
+  ok   panelSize ушёл в sync как compact
+  ok   collapseAfterRun/soundOnComplete/browserNotify сохраняются
+  ok   токен НЕ пишется в sync
+  ok   токен пишется в local
+  ok   точка несохранённых изменений очистилась
+
+[5] Кнопки Экспорт/Импорт подключены (раньше были мертвы)
+  ok   Экспорт запустил скачивание ai-execute-settings.json
+  ok   Импорт применился к полям формы (echoMode=none, тема=dark)
+  ok   Импортированный токен ушёл в local
+  ok   Импортированный токен НЕ ушёл в sync
+
+[6] Биндинги живы после импорта; повторное сохранение пишет выбор
+  ok   исходное состояние: выбран «Скрыть»
+  ok   сегмент реагирует на клик после load()
+  ok   повторное сохранение записало echoMode=short
+
+[7] Поиск по настройкам фильтрует карточки
+  ok   поле поиска есть в разметке и найдено
+  ok   карточки настроек найдены
+  ok   после поиска видно меньше карточек, чем всего
+  ok   карточка про автопилот видна
+  ok   пустой запрос возвращает все карточки
+
+[8] Токен: чтение из local, миграции из sync нет
+  ok   поле токена не пустое после импорта
+
+[9] Онбординг: ссылка от сервера (#ax-setup=…) настраивает всё сама
+  ok   адрес сервера подставлен из ссылки
+  ok   токен подставлен из ссылки
+  ok   адрес сохранён в sync
+  ok   токен сохранён в local (не в sync)
+  ok   токен вычищен из адресной строки
+  ok   после применения сразу проверяется связь (PING)
+  ok   статус обновился результатом проверки связи
+  ok   поля не помечены как «несохранённые»
+
+[10] Битые и чужие ссылки не ломают страницу
+  ok   битая ссылка: понятное сообщение, поля не тронуты
+  ok   битая ссылка ничего не записала в storage
+  ok   пустая полезная нагрузка: поля остались прежними
+
+======================================================
+Итог: 39 ok, 0 fail
+Все проверки прошли.
+
+[1] Панель строится в закрытом shadow root
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   панель вставлена в документ
+  ok   у панели нет открытого shadowRoot (закрытый режим)
+  ok   page-JS не может достать кнопку ▶ через DOM
+  ok   кнопка ▶ доступна расширению (через прокси panel.$)
+  ok   вывод (.ax-exec-output) не виден из DOM страницы
+
+[2] Синтетический клик по ▶ не выполняет команду
+  ok   у кнопки есть обработчик
+  ok   клик по host не запустил выполнение
+  ok   (служебная проверка) обработчик кнопки существует
+
+[3] Настоящий клик запускает команду (подтверждение выключено)
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   команда ушла на сервер
+  ok   ушла именно команда из блока
+
+[3b] Модалка подтверждения тоже в закрытом shadow root
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   модалка появилась
+  ok   модалка закрыта от page-JS (shadowRoot === null)
+  ok   кнопка подтверждения не видна из DOM страницы
+  ok   кнопка подтверждения доступна расширению
+  ok   синтетический клик по кнопке подтверждения НЕ выполняет команду
+  ok   модалка осталась открытой после отклонённого клика
+  ok   в модалке есть кнопки отмены и подтверждения
+
+[4] retry() действительно перезапускает автопилот (был no-op из-за done)
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   панель автопилота создана
+  ok   после finish() флаг done выставлен
+  ok   retry() сбросил done
+  ok   retry() перезапустил панель (started выставлен)
+  ok   панель снова в очереди/активна
+  ok   panel.$ по-прежнему работает после retry
+
+[5] Повторный рендер блока не оставляет панель-сироту
+  ok   у нового блока появилась ровно одна панель
+  ok   панель-дубликат рядом не размножается
+
+======================================================
+Итог: 25 ok, 0 fail
+Все проверки прошли.
+
+успешное выполнение — объяснять нечего:
+  ok   exit=0 без вывода
+  ok   exit=0 с выводом
+
+таймаут:
+  ok   timed_out
+  ok   только код 124
+
+команда не найдена:
+  ok   Windows cmd
+  ok   bash
+
+пути и файлы:
+  ok   PowerShell при exit=0 (!)
+  ok   ENOENT в Node
+
+права доступа:
+  ok   Windows
+  ok   Unix
+
+Python:
+  ok   NameError
+  ok   ModuleNotFoundError
+  ok   NBSP в коде
+  ok   SyntaxError
+  ok   Traceback
+
+Node и среда:
+  ok   модуль не найден
+  ok   node не установлен
+  ok   порт занят
+  ok   кодировка
+  ok   сеть
+  ok   молчаливый провал на Windows
+
+отказы до запуска (не путать с ошибкой команды):
+  ok   whitelist
+  ok   неверная рабочая папка
+  ok   нет интерпретатора
+
+запасной вариант:
+  ok   неизвестный код возврата
+
+структура ответа:
+  ok   есть id
+  ok   есть заголовок
+  ok   есть подсказка
+  ok   подсказка непустая
+  ok   нет падения на мусоре
+  ok   нет падения на строке
+
+======================================================
+Итог: 31 ok, 0 fail
+Все проверки прошли.
+
+[1] Токены дизайн-системы объявлены
+  ok   токен --ax-accent
+  ok   токен --ax-surface
+  ok   токен --ax-text
+  ok   токен --ax-border
+  ok   токен --ax-r-md
+  ok   токен --ax-success
+  ok   токен --ax-danger
+  ok   токен --ax-warn
+  ok   токен --ax-font
+  ok   токен --ax-font-mono
+  ok   токен --ax-shadow-1
+  ok   токен --ax-ease
+  ok   токен --ax-on-accent
+  ok   токен --ax-knob
+  ok   есть тёмная тема через data-ax-theme
+  ok   есть авто-тема по prefers-color-scheme
+
+[2] Каждая переменная, используемая в content.css, объявлена в дизайн-системе
+  ok   нет «висячих» переменных
+  ok   content.css реально использует токены (не хардкод)
+
+[3] Страницы расширения подключают дизайн-систему
+  ok   options.html: подключён ax-ui.css
+  ok   options.html: есть класс ax-ui для базовых стилей
+  ok   options.html: используется var(--ax-…) в собственных стилях
+  ok   options.html: нет «жёстких» hex-цветов в разметке стилей
+  ok   popup.html: подключён ax-ui.css
+  ok   popup.html: есть класс ax-ui для базовых стилей
+  ok   popup.html: используется var(--ax-…) в собственных стилях
+  ok   popup.html: нет «жёстких» hex-цветов в разметке стилей
+
+[4] Панель и модалка получают токены из shadow root
+  ok   ax-panel.js импортирует ax-ui.css
+  ok   ax-panel.js импортирует content.css
+  ok   есть программные иконки (без эмодзи в кнопках)
+  ok   applyPanelAppearance ставит data-ax-theme на хосте
+  ok   токены объявлены на :host, а не только на :root
+  ok   в ax-ui.css есть токены группы radii
+  ok   в ax-ui.css есть токены группы spacing
+  ok   в ax-ui.css есть токены группы shadow
+  ok   в ax-ui.css есть токены группы fonts
+  ok   тёмная тема продублирована на :host для shadow root
+  ok   в JS больше нет дубля токенов (источник правды — CSS)
+
+[5] Манифесты отдают новые файлы контент-скрипту
+  ok   manifest.json: ax-ui.css доступен
+  ok   manifest.json: content.css доступен
+  ok   manifest.chrome.json: ax-ui.css доступен
+  ok   manifest.chrome.json: content.css доступен
+
+[6] Контракт классов, на который завязан JS, не переименован
+  ok   стиль для .ax-exec-panel
+  ok   стиль для .ax-exec-header
+  ok   стиль для .ax-exec-badge
+  ok   стиль для .ax-btn-run
+  ok   стиль для .ax-btn-copy
+  ok   стиль для .ax-exec-status
+  ok   стиль для .ax-exec-output
+  ok   стиль для .ax-exec-after
+  ok   стиль для .ax-exec-cmd-preview
+  ok   стиль для .ax-runner-select
+  ok   стиль для .ax-modal
+  ok   стиль для .ax-modal-backdrop
+  ok   стиль для .ax-modal-row
+  ok   стиль для .ax-btn-confirm
+  ok   стиль для .ax-btn-cancel
+  ok   стиль для .ax-toast
+  ok   стиль для #ax-server-dot
+  ok   стиль для .ax-view-wrap
+  ok   стиль для .ax-view-img
+  ok   стиль для .ax-view-meta
+
+[7] Доступность и мелочи премиального уровня
+  ok   есть видимый фокус (:focus-visible)
+  ok   анимации уважают prefers-reduced-motion
+  ok   статус панели использует цветной индикатор, а не только текст
+  ok   превью команды доступно с клавиатуры (tabindex/role)
+  ok   сегмент-контрол в настройках — настоящие кнопки
+  ok   переключатели в попапе — label+checkbox (клик по всей строке)
+
+======================================================
+Итог: 67 ok, 0 fail
+Все проверки прошли.
+
+[1] Палитра команд: открытие, поиск, список
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   журнал команд загружен из storage
+  ok   закреплённые загружены из sync
+  ok   палитра закрыта по умолчанию
+  ok   Ctrl+Shift+E открывает палитру
+  ok   хост палитры в документе
+  ok   содержимое закрыто от page-JS
+  ok   внутри доступно расширению
+  ok   закреплённая команда идёт первой
+  ok   всего строк = закреплённая + 3 из истории
+  ok   видно код возврата прошлого запуска
+  ok   видно среду
+
+[2] Палитра: поиск и «новая команда»
+  ok   поиск оставляет только совпадение
+  ok   поиск по слову находит git status
+  ok   неизвестный текст предлагается как новая команда
+
+[3] Палитра: запуск и предохранители
+  ok   клик по строке запускает команду
+  ok   ушла именно выбранная команда
+  ok   после запуска палитра закрылась
+  ok   палитра открывается повторно
+  ok   Esc закрывает палитру
+
+[4] Палитра: закрепление и вставка в чат
+  ok   первой идёт уже закреплённая команда
+  ok   в списке есть незакреплённая команда
+  ok   закрепление изменило список
+  ok   закреплённая команда поднялась наверх
+  ok   звёздочка стала заполненной
+  ok   повторное нажатие снимает закрепление
+  ok   вставка в чат положила execute-блок
+  ok   после вставки палитра закрылась
+  ok   для python вставляется execute-python
+
+[5] Палитра: опасное не запускается без подтверждения
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   опасная команда есть в списке
+  ok   опасная команда НЕ выполнилась сразу — показана модалка
+
+[6] Палитра: горячая клавиша уважает настройку и isTrusted
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   при paletteEnabled=false палитра не открывается
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   синтетическая клавиша из page-JS игнорируется
+
+[7] Палитра: открытие не дёргает ленту чата
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   позиция прокрутки страницы не изменилась
+  ok   scrollIntoView не вызывается вовсе
+  ok   палитра при этом открылась
+  ok   закрытие тоже не прокручивает страницу
+
+[3] Палитра: фильтр (AX.paletteFilter)
+  ok   поиск по npm находит две
+  ok   закреплённая выше при равном совпадении
+  ok   поиск по среде находит python
+  ok   пустой запрос возвращает всё
+  ok   несовпадение даёт пусто
+
+[8] Сворачивание шумного вывода (AX.isNoisyOutput)
+  ok   длинный листинг считается шумным
+  ok   короткий вывод — не шумный
+  ok   длинные строки кода не сворачиваем
+  ok   пустой вывод — не шумный
+  ok   граница: 39 строк не шумно
+  ok   граница: 40 строк шумно
+  ok   возвращает общее число строк
+
+[9] Журнал команд: запись, дедуп, лимит, закрепление
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   записи добавляются в начало (свежие сверху)
+  ok   повтор не дублируется, а поднимается
+  ok   код возврата обновился
+  ok   лимит журнала соблюдается (30)
+  ok   самая старая запись вытеснена
+  ok   пустую команду не пишем
+  ok   очистка журнала работает
+  ok   togglePin закрепляет
+  ok   togglePin снимает закрепление
+  ok   paletteItems: закреплённые первыми
+  ok   paletteItems: без дублей
+
+[10] Журнал: markdown-экспорт
+  ok   в options.js есть генератор markdown
+  ok   экспорт пишет имя файла .md
+  ok   в шапке журнала предупреждение о секретах
+  ok   markdown-таблица формируется
+  ok   в options.html есть кнопки журнала
+
+[11] Журнал пишется без секретов
+  ok   маскируется --token
+  ok   маскируется --token=…
+  ok   маскируется Bearer
+  ok   маскируется password=
+  ok   маскируется api_key
+  ok   настроенный токен маскируется
+  ok   обычная команда не меняется
+  ok   короткое значение не маскируется (ложных срабатываний нет)
+  ok   в журнале нет значения токена
+  ok   запись помечена как содержащая секрет
+  ok   в paletteItems флаг secret доезжает
+  ok   в сохранённый storage уходит маскированный текст
+  ok   обычная команда пишется как есть
+  ok   закрепление тоже маскирует
+
+[12] Палитра: команда со скрытым секретом не запускается как есть
+  ok   команда со скрытым секретом не выполнена
+  ok   текст подставлен в поиск для правки
+  ok   значение токена в палитре не показывается
+
+[13] Тема shadow-хостов: токены приходят из CSS, а не из JS
+[AX] core loaded
+[AX] view loaded
+[AX] panel loaded
+[AX] palette loaded
+[AX] AI Execute Runner загружен на chatgpt.com
+  ok   токены объявлены на :host
+  ok   токен --ax-s-5: объявлен в CSS
+  ok   токен --ax-r-lg: объявлен в CSS
+  ok   токен --ax-shadow-3: объявлен в CSS
+  ok   токен --ax-font-mono: объявлен в CSS
+  ok   токен --ax-surface: объявлен в CSS
+  ok   в JS нет дубля токенов
+  ok   тёмная тема есть и для :host
+  ok   createShadowModal: data-ax-theme выставлен
+  ok   createShadowModal: токены НЕ задаются inline (иначе снова разъедутся с CSS)
+  ok   createShadowPanel: data-ax-theme выставлен
+  ok   createShadowPanel: токены НЕ задаются inline (иначе снова разъедутся с CSS)
+  ok   тёмная тема доезжает до нового хоста
+  ok   applyPanelAppearance обновляет существующий хост
+
+[14] Настройки новых функций сохраняются и читаются
+  ok   в разметке есть paletteEnabled
+  ok   в разметке есть noisyCollapse
+  ok   save() сохраняет paletteEnabled
+  ok   save() сохраняет noisyCollapse
+  ok   load() подставляет оба значения
+  ok   DEFAULTS в background.js дополнены
+  ok   манифест подключает ax-palette.js
+
+======================================================
+Итог: 102 ok, 0 fail
+Все проверки прошли.
+
+[1] background: нормализация адреса сервера
+  ok   добавляет схему
+  ok   убирает хвостовые слеши
+  ok   пустое значение → дефолт
+
+[2] background: PING ходит на /ping
+  ok   ответ ok
+  ok   запрошен /ping
+
+[3] background: настройки и токен
+  ok   настройки отдаются
+  ok   пользовательские настройки на месте
+  ok   дефолты дополнены (палитра, свёрнутый вывод)
+  ok   токен взят из local
+  ok   в sync токен не попал
+
+[4] background: старый токен из sync мигрируется в local
+  ok   токен прочитан
+  ok   перенесён в local
+  ok   удалён из sync
+
+[5] background: RUN отправляет команду с токеном
+  ok   команда выполнена
+  ok   POST на /run
+  ok   токен в заголовке X-Auth-Token
+  ok   тело — JSON с командой и средой
+
+[6] background: без токена заголовок не добавляется
+  ok   заголовка токена нет
+
+[7] background: ошибки не роняют расширение, а объясняются
+  ok   401 не роняет ответ
+  ok   причина пробросена
+  ok   blocked=true — не ошибка транспорта
+  ok   таймаут объяснён по-человечески
+  ok   неизвестное сообщение не ломает
+
+[8] background: контекстное меню создаётся при старте
+  ok   пункт меню зарегистрирован
+
+[9] popup: читает настройки и проверяет связь
+  ok   адрес сервера в поле
+  ok   таймаут в поле
+  ok   токен подставлен
+  ok   «требовать подтверждение» снято
+  ok   автовыполнение включено
+  ok   задержка автозапуска
+  ok   проверка связи выполнена
+  ok   статус «на связи»
+  ok   версия показана
+
+[10] popup: сохранение и недоступный сервер
+  ok   таймаут записан в sync
+  ok   подтверждение записано в sync
+  ok   недоступный сервер показан понятно
+  ok   статус помечен как ошибка
+
+======================================================
+Итог: 37 ok, 0 fail
+Все проверки прошли.
+
+[1] background: MCP-маршруты ходят на сервер с токеном
+  ok   AX_MCP_STATUS -> /mcp/servers
+  ok   AX_MCP_TOOLS -> /mcp/tools
+  ok   AX_MCP_CALL -> /mcp/call
+  ok   AX_MCP_RELOAD -> /mcp/reload
+  ok   токен в заголовке
+  ok   POST-тело — JSON
+  ok   аргументы уходят как arguments
+  ok   server и tool переданы
+
+[2] background: без токена заголовок не добавляется
+  ok   заголовка токена нет
+
+[3] background: сервер недоступен не роняет расширение
+  ok   статус вернулся, а не упал
+  ok   reachable=false
+  ok   инструменты: ok=false с текстом ошибки
+
+[4] background: MCP выключен на сервере — понятное сообщение
+  ok   enabled=false распознан
+  ok   сервер при этом доступен
+
+[5] MCP выключен по умолчанию (и в расширении, и на сервере)
+  ok   background.js: mcpEnabled по умолчанию false
+  ok   options.js: DEFAULTS.mcpEnabled = false
+  ok   options.js: включение только при явном true
+  ok   server.py: MCP_REGISTRY = None по умолчанию
+  ok   server.py: флаг --mcp есть
+  ok   поставляемый конфиг: все серверы выключены
+
+[6] MCP-эндпоинты закрыты токеном, как /run
+  ok   GET /mcp/servers проверяет токен
+  ok   POST /mcp/* проверяет токен
+  ok   do_POST сначала проверяет Host/Origin
+  ok   вызов требует server и tool
+  ok   arguments обязан быть объектом
+  ok   выключенный сервер вызову не подлежит
+
+[7] options: раздел «Экспериментальное» с MCP внутри
+  ok   есть карточка #sec-exp
+  ok   карточка называется «Экспериментальное»
+  ok   на карточке подсказка про MCP
+  ok   есть пункт в боковом меню
+  ok   MCP-блок вложен в sec-exp, а не отдельная карточка
+  ok   есть переключатель #mcpEnabled
+  ok   визуальный бейдж «экспериментально»
+  ok   предупреждение «выключено по умолчанию»
+  ok   указано про флаг --mcp
+  ok   указано ограничение stdio
+  ok   есть кнопки проверки и перезагрузки
+  ok   блок состояний скрыт по умолчанию
+  ok   options.js скрывает блок по флажку
+  ok   options.js не ходит на сервер напрямую
+  ok   options.js шлёт AX_MCP_* в background
+  ok   CSS: стиль врезки-предупреждения
+  ok   CSS: стиль подблока
+  ok   CSS: разделитель подблока использует токен темы
+
+[8] MCP-клиент реализует протокол
+  ok   объявлен initialize
+  ok   шлётся notifications/initialized
+  ok   реализован tools/list
+  ok   реализован tools/call
+  ok   заявлена версия протокола
+  ok   JSON-RPC 2.0
+  ok   ошибка сервера превращается в McpError
+  ok   таймаут реализован
+  ok   процессы глушатся при остановке сервера
+  ok   мусор в stdout не ломает протокол
+
+[9] версия в манифестах, сервере и MCP-клиенте одна
+  ok   manifest.json = manifest.chrome.json
+  ok   manifest.json = server.py
+  ok   manifest.json = mcp_client.py CLIENT_INFO
+  ok   версия в формате X.Y.Z
+
+[10] блок execute-mcp: детект, разбор, приведение результата
+  ok   execute-mcp в EXEC_LANGS -> runner mcp
+  ok   execute:mcp -> runner mcp
+  ok   mcp-execute -> runner mcp
+  ok   остальные среды не сломались
+  ok   сниффер не считает mcp за python/node
+  ok   runnerValid признаёт mcp
+  ok   mcp есть в списке выбора среды
+  ok   обычные среды не сломались
+  ok   ax-core: есть parseMcpBlock
+  ok   ax-core: есть mcpResultToRun
+  ok   панель шлёт AX_MCP_CALL для runner=mcp
+  ok   промпт упоминает execute-mcp
+  ok   промпт объясняет JSON-формат
+  ok   промпт запрещает выдумывать инструменты
+  ok   SYSTEM_PROMPT.md синхронизирован
+
+[11] разбор блока execute-mcp и приведение результата (jsdom)
+[AX] core loaded
+  ok   корректный блок разобран
+  ok   без arguments — пустой объект
+  ok   мусор отклонён с понятной ошибкой
+  ok   без server — ошибка
+  ok   arguments-массив отклонён
+  ok   JSON в ограждении ``` разбирается
+  ok   ответ превращён в вид /run
+  ok   isError даёт ненулевой exit_code
+  ok   пустой результат не путается
+  ok   несколько content склеиваются
+
+----------------------------------------------------
+MCP: 83 ok, 0 fail
