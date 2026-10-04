@@ -159,9 +159,22 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
   check('GET /mcp/servers проверяет токен',
     /req_path == '\/mcp\/servers'[\s\S]{0,400}?self\._check_token\(\)/.test(srvPy));
   check('POST /mcp/* проверяет токен',
-    /def _mcp_post[\s\S]{0,400}?self\._check_token\(\)/.test(srvPy));
+    /def _mcp_guard[\s\S]{0,400}?self\._check_token\(\)/.test(srvPy)
+    && /def _mcp_post[\s\S]{0,200}?self\._mcp_guard\(\)/.test(srvPy));
+  check('whitelist блокирует MCP (обход защиты через tools/call)',
+    /WHITELIST is not None[\s\S]{0,300}?403/.test(srvPy));
+  check('в режиме whitelist MCP отключается, а не проходит молча',
+    /whitelist-режим: вызовы MCP заблокированы/.test(srvPy));
+  check('README не обещает обхода whitelist',
+    !/обходит whitelist/.test(readRoot('README.md')));
+  check('MCP-ответ обрезается тем же лимитом, что и shell',
+    /_mcp_clip_limit\(\)/.test(srvPy) && /return MAX_OUTPUT/.test(srvPy));
+  check('таймаут MCP ограничен сверху',
+    /min\(timeout, 600\.0\)/.test(srvPy));
+  check('__proto__ и друзья отклоняются',
+    /__proto__[\s\S]{0,120}?constructor[\s\S]{0,120}?prototype/.test(srvPy));
   check('do_POST сначала проверяет Host/Origin',
-    /def do_POST[\s\S]{0,300}?self\._allowed\(\)[\s\S]{0,250}?_mcp_post/.test(srvPy));
+    /def do_POST[\s\S]{0,400}?self\._allowed\(\)[\s\S]{0,400}?_mcp_post/.test(srvPy));
   check('вызов требует server и tool', /нужны поля server и tool/.test(srvPy));
   check('arguments обязан быть объектом', /arguments должен быть объектом/.test(srvPy));
   check('выключенный сервер вызову не подлежит', /выключен/.test(readRoot(path.join('server', 'mcp_client.py'))));
@@ -194,6 +207,23 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
   check('CSS: стиль подблока', /\.ax-sub\b/.test(css) && /\.ax-sub-title/.test(css));
   check('CSS: разделитель подблока использует токен темы',
     /\.ax-sub\s*\{[^}]*--ax-border/.test(css));
+
+  // Отчёт по инструментам: без него ИИ выдумывает имена.
+  console.log('\n[12] отчёт по инструментам для ИИ');
+  check('кнопка «Скопировать список для ИИ»', /id="mcpReport"/.test(optHtml));
+  check('кнопка «Сохранить на рабочий стол»', /id="mcpReportSave"/.test(optHtml));
+  check('есть поле для статуса отчёта', /id="mcpReportNote"/.test(optHtml));
+  check('options.js шлёт AX_MCP_REPORT', /AX_MCP_REPORT/.test(optJs));
+  check('options.js вешает оба обработчика',
+    /id.*mcpReport.*|report\.addEventListener\('click', \(\) => mcpReport\(false\)\)/.test(optJs)
+    && /mcpReportSave/.test(optJs) && /mcpReport\(true\)/.test(optJs));
+  check('background знает маршрут AX_MCP_REPORT',
+    /msg\.type === 'AX_MCP_REPORT'/.test(bgJs));
+  check('background ходит на /mcp/report', /'\/mcp\/report'/.test(bgJs));
+  check('сервер отдаёт отчёт и пишет файл',
+    /_mcp_tools_report/.test(srvPy) && /mcp-tools\.md/.test(srvPy));
+  check('в отчёте есть готовый блок execute-mcp',
+    /lines\.append\('```execute-mcp'\)/.test(srvPy));
 
   // ---------- 8. Протокол ----------
   console.log('\n[8] MCP-клиент реализует протокол');
@@ -241,6 +271,27 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
     && det.runnerValid('python') === 'python'
     && det.runnerValid('нет-такой') === null);
 
+  // Опасные MCP-инструменты: подтверждение нужно даже при автопилоте.
+  console.log('\n[10b] опасные MCP-инструменты требуют подтверждения');
+  check('execute_blender_code = hard', det.mcpToolDanger('execute_blender_code') === 'hard');
+  check('run_code = hard', det.mcpToolDanger('run_code') === 'hard');
+  check('write_file = hard', det.mcpToolDanger('write_file') === 'hard');
+  check('export_mesh_library = hard', det.mcpToolDanger('export_mesh_library') === 'hard');
+  check('get_scene_info = безопасен', det.mcpToolDanger('get_scene_info') === null);
+  check('read_file = безопасен', det.mcpToolDanger('read_file') === null);
+  check('блок с опасным инструментом = hard',
+    det.mcpBlockDanger('{"server":"blender","tool":"execute_blender_code"}') === 'hard');
+  check('блок с безопасным инструментом = null',
+    det.mcpBlockDanger('{"server":"blender","tool":"get_scene_info"}') === null);
+  check('блок без tool = hard (не знаем, что делает)',
+    det.mcpBlockDanger('{"server":"x"}') === 'hard');
+  const panelSrc = read('ax-panel.js');
+  check('панель спрашивает подтверждение для опасного MCP даже в автопилоте',
+    /mcpHard \|\| \(!isAuto && AX\.settings\.requireConfirm\)/.test(panelSrc));
+  check('модалка умеет принимать danger и note',
+    /function \(\{ lang, runner, command, danger, note \}\)/.test(panelSrc)
+    && /const level = danger \|\| D\.dangerLevel\(command\)/.test(panelSrc));
+
   const coreJs = read('ax-core.js');
   check('ax-core: есть parseMcpBlock', /AX\.parseMcpBlock = function/.test(coreJs));
   check('ax-core: есть mcpResultToRun', /AX\.mcpResultToRun = function/.test(coreJs));
@@ -251,7 +302,10 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
   const promptSrc = read('prompt.js');
   check('промпт упоминает execute-mcp', /execute-mcp/.test(promptSrc));
   check('промпт объясняет JSON-формат', /"server".*"tool".*"arguments"/.test(promptSrc));
-  check('промпт запрещает выдумывать инструменты', /НЕ выдумывай имена серверов/.test(promptSrc));
+  check('промпт запрещает выдумывать инструменты',
+    /Не выдумывай имена/.test(promptSrc) && /вернёт ошибку/.test(promptSrc));
+  check('промпт упоминает список инструментов (файл на столе)',
+    /mcp-tools\.md/.test(promptSrc));
   check('SYSTEM_PROMPT.md синхронизирован', /execute-mcp/.test(readRoot('SYSTEM_PROMPT.md')));
 
   // Разбор execute-mcp проверяем по-настоящему: грузим ax-core в jsdom и

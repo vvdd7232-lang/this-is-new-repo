@@ -200,13 +200,15 @@ async function run() {
     r2.settings.serverUrl === 'http://127.0.0.1:9999' && r2.settings.timeout === 77, r2.settings);
   check('дефолты дополнены (палитра, свёрнутый вывод)',
     r2.settings.paletteEnabled === true && r2.settings.noisyCollapse === true, r2.settings);
-  check('токен взят из local', r2.settings.authToken === 'SECRET-TOK', r2.settings.authToken);
+  check('токен НЕ отдаётся в content-script', r2.settings.authToken === '', r2.settings.authToken);
+  check('токен остаётся в local (background его знает)', e2.store.local.authToken === 'SECRET-TOK', e2.store.local);
   check('в sync токен не попал', !('authToken' in e2.store.sync), Object.keys(e2.store.sync));
 
   console.log('\n[4] background: старый токен из sync мигрируется в local');
   const e3 = makeBgEnv({ sync: { authToken: 'LEGACY' } });
-  const r3 = await e3.send({ type: 'AX_GET_SETTINGS' });
-  check('токен прочитан', r3.settings.authToken === 'LEGACY', r3.settings.authToken);
+  await e3.send({ type: 'AX_PING' });   // миграция срабатывает при чтении токена
+  const e3r = await e3.send({ type: 'AX_GET_SETTINGS' });
+  check('токен не утёк в настройки', e3r.settings.authToken === '', e3r.settings.authToken);
   check('перенесён в local', e3.store.local.authToken === 'LEGACY', e3.store.local);
   check('удалён из sync', !('authToken' in e3.store.sync), Object.keys(e3.store.sync));
 
@@ -232,6 +234,26 @@ async function run() {
   console.log('\n[6] background: без токена заголовок не добавляется');
   const e5 = makeBgEnv({ fetchImpl: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) }) });
   await e5.send({ type: 'AX_RUN', payload: { command: 'ls', runner: 'shell' } });
+console.log('\n[6b] background: токен маскируется в команде и выводе');
+  const TOK = 'super-secret-token-abc';
+  const e5b = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765' },
+    local: { authToken: TOK },
+    fetchImpl: () => Promise.resolve({
+      ok: true, status: 200,
+      json: () => Promise.resolve({
+        ok: true, executed: true, exit_code: 0,
+        stdout: 'вывод с токеном ' + TOK + ' и мусором',
+        stderr: 'err ' + TOK,
+      }),
+    }),
+  });
+  const r5b = await e5b.send({ type: 'AX_RUN', payload: { command: 'echo ' + TOK, runner: 'shell' } });
+  const so5 = (r5b && r5b.result && r5b.result.stdout) || '';
+  const se5 = (r5b && r5b.result && r5b.result.stderr) || '';
+  check('токен не попал в stdout ответа', so5.indexOf(TOK) === -1, so5);
+  check('токен не попал в stderr ответа', se5.indexOf(TOK) === -1, se5);
+  check('маска на месте', so5.indexOf('«скрыто»') >= 0, so5);
   const c5 = e5.calls.fetch.find((c) => c.url.endsWith('/run'));
   check('заголовка токена нет', !!c5 && !c5.init.headers['X-Auth-Token'], c5 && c5.init.headers);
 

@@ -27,9 +27,14 @@ import threading
 import time
 
 PROTOCOL_VERSION = '2024-11-05'
-CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.8.2'}
+CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.9.0'}
 DEFAULT_TIMEOUT = 30.0
 MAX_TOOLS_PER_SERVER = 200
+# Потолок одной строки от MCP-сервера и глубина очереди сообщений. Без них
+# «сервер, который льёт в stdout» съедает память процесса: очередь растёт
+# бесконечно, пока пользователь смотрит на панель.
+MAX_LINE_BYTES = 8 * 1024 * 1024
+QUEUE_MAX_MESSAGES = 256
 
 
 def _log(msg):
@@ -67,7 +72,7 @@ class McpServerClient:
         self._err_lock = threading.Lock()
         self._stderr_buf = b''
         self._stderr_thread = None
-        self._queue = queue.Queue()      # сообщения от потока-читателя
+        self._queue = queue.Queue(maxsize=QUEUE_MAX_MESSAGES)      # сообщения от потока-читателя
         self._reader_thread = None
         self._waiting_for = None
 
@@ -127,7 +132,7 @@ class McpServerClient:
             self.server_info = {}
             self.capabilities = {}
             self._stderr_buf = b''
-            self._queue = queue.Queue()
+            self._queue = queue.Queue(maxsize=QUEUE_MAX_MESSAGES)
             self._stderr_thread = threading.Thread(
                 target=self._drain_stderr, daemon=True)
             self._stderr_thread.start()
@@ -138,20 +143,39 @@ class McpServerClient:
 
     def _read_stdout(self, stream, out_queue):
         """Поток-читатель: без него readline() блокировался бы навсегда и
-        таймаут не мог бы сработать (сервер может просто молчать)."""
+        таймаут не мог бы сработать (сервер может просто молчать).
+
+        Ограничения на размер и глубину нужны потому, что stdout читает
+        СЕРВЕР, которому мы доверяем лишь настолько, насколько доверяют
+        пользователю: поток, залививший мегабайты в одну «строку», иначе
+        съедал бы память процесса, пока пользователь смотрит на панель.
+        """
         try:
             for raw in iter(stream.readline, b''):
                 line = raw.strip()
                 if not line:
                     continue
+                if len(line) > MAX_LINE_BYTES:
+                    # Сервер присылает нечто непристойное: рвём протокол.
+                    raise McpError('сервер «%s» прислал строку больше %d байт'
+                                   % (self.name, MAX_LINE_BYTES))
                 try:
-                    out_queue.put(json.loads(line.decode('utf-8')))
+                    out_queue.put(json.loads(line.decode('utf-8')), timeout=5)
                 except (ValueError, UnicodeDecodeError):
                     continue          # мусор в stdout — не ошибка протокола
+                except queue.Full:
+                    # Ответ не нужен (например, уведомление, которого мы не
+                    # ждём). Молча пропускаем: очередь конечна.
+                    continue
+        except McpError:
+            pass
         except Exception:
             pass
         finally:
-            out_queue.put(None)      # EOF: читатель дочитал
+            try:
+                out_queue.put(None, timeout=5)   # EOF: читатель дочитал
+            except queue.Full:
+                pass
 
     # ---------- JSON-RPC ----------
     def _send(self, method, params=None, notification=False):

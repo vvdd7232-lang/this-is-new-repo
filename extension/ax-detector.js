@@ -486,6 +486,33 @@
   // Совместимое имя: «есть ли вообще что-то подозрительное» (hard или soft).
   function isDangerous(cmd) { return dangerLevel(cmd) !== null; }
 
+  // --- опасные MCP-инструменты ------------------------------------------------
+  // Инструмент может исполнять произвольный код (execute_blender_code, run_code)
+  // или удалять данные. Для них подтверждение нужно ВСЕГДА, даже при включённом
+  // автопилоте: иначе модель сама выполнит произвольный код в Blender/Godot.
+  const DANGEROUS_MCP_TOOLS = [
+    /execute/i, /run_code/i, /eval/i, /exec/i,
+    /^(write|edit|delete|remove|drop|destroy)_/i,
+    /_write$/i, /_delete$/i, /_remove$/i,
+    /save_scene/i, /export/i,
+  ];
+  // Инструменты, которые меняют проект, но не разрушают его: подтверждение
+  // по общим правилам (requireConfirm), автопилот проходит.
+  function mcpToolDanger(toolName) {
+    const t = String(toolName || '').trim();
+    if (!t) return null;
+    return DANGEROUS_MCP_TOOLS.some((re) => re.test(t)) ? 'hard' : null;
+  }
+  // Уровень опасности всего MCP-блока: смотрим и сервер, и инструмент.
+  function mcpBlockDanger(cmd) {
+    const m = String(cmd || '').match(/"tool"\s*:\s*"([^"]*)"/);
+    const tool = m ? m[1] : '';
+    if (mcpToolDanger(tool) === 'hard') return 'hard';
+    // Неизвестный инструмент без подтверждения опасен по определению:
+    // не знаем, что он делает.
+    return tool ? null : 'hard';
+  }
+
   const RUNNER_OPTIONS = [
     ['shell', 'shell'],
     ['powershell', 'powershell'],
@@ -720,6 +747,7 @@
   return {
     EXEC_LANGS, RUNNER_OPTIONS,
     normalizeWhitespace, isDangerous, isHardDangerous, dangerLevel, stripStringLiterals, runnerValid, normLang,
+    mcpToolDanger, mcpBlockDanger,
     unquotedSegments, hasDangerousSignature, describeFailure, redactSecrets, SECRET_MASK,
     sniffRunner, getCodeText, detectRunner, detectFallback,
   };

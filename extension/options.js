@@ -282,8 +282,12 @@ document.addEventListener('change', (e) => {
 (function initMcpUi() {
   const reload = $('mcpReload');
   const refresh = $('mcpRefresh');
+  const report = $('mcpReport');
+  const reportSave = $('mcpReportSave');
   if (reload) reload.addEventListener('click', () => mcpReloadConfig());
   if (refresh) refresh.addEventListener('click', () => mcpLoadTools());
+  if (report) report.addEventListener('click', () => mcpReport(false));
+  if (reportSave) reportSave.addEventListener('click', () => mcpReport(true));
 })();
 
 // Поиск по настройкам + навигация по разделам + горячие клавиши.
@@ -687,6 +691,38 @@ async function mcpReloadConfig() {
     return;
   }
   await mcpLoadTools();
+}
+
+// Отчёт по инструментам для ИИ: точные имена, описания, аргументы и готовые
+// блоки execute-mcp. Без него модель выдумывает «blender.create_cube» вместо
+// настоящего имени инструмента — и вызов падает.
+async function mcpReport(save) {
+  if (!updateMcpBox()) return;
+  const note = $('mcpReportNote');
+  if (note) note.textContent = save ? 'Формирую отчёт и сохраняю…' : 'Формирую отчёт…';
+  const resp = await mcpSend({ type: 'AX_MCP_REPORT', payload: { save: !!save } });
+  if (!resp || !resp.ok) {
+    const err = (resp && resp.error) || 'сервер не ответил';
+    if (note) note.textContent = 'Не получилось: ' + err;
+    statusMsg('MCP: ' + err, 'err');
+    return;
+  }
+  const res = resp.result || {};
+  const text = res.text || '';
+  if (save && res.saved_to) {
+    if (note) note.textContent = 'Готово: ' + res.saved_to +
+      ' · вставь этот файл в чат или приложи как контекст';
+    statusMsg('MCP: список инструментов сохранён на рабочий стол', 'ok');
+  } else {
+    try {
+      await AX.copyToClipboard(text);
+      if (note) note.textContent = 'Скопировано (' + (res.count || 0) +
+        ' инструментов). Вставь в чат первым сообщением.';
+      statusMsg('MCP: список инструментов скопирован в буфер', 'ok');
+    } catch (e) {
+      if (note) note.textContent = 'Скопировать не вышло: ' + (e && e.message ? e.message : e);
+    }
+  }
 }
 
 async function save() {

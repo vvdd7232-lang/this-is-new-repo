@@ -73,6 +73,7 @@ $nl = $serverTxt -match '\[\\r\\n\]'
 $cyr = $serverTxt.Contains([string][char]0x043B + [string][char]0x043E + [string][char]0x043A)  # "лок"
 $pycache = $false
 $mcpFiles = @()
+$private = @()
 $z = [System.IO.Compression.ZipFile]::OpenRead($serverZip)
 try {
     $pycache = @($z.Entries | Where-Object { $_.FullName -match '__pycache__|\.pyc$' }).Count -gt 0
@@ -80,6 +81,10 @@ try {
     # упадёт с ImportError, и пользователь не поймёт почему.
     $mcpFiles = @($z.Entries | Where-Object { $_.FullName -match '(mcp_client\.py|mcp_servers\.json)$' } |
                  ForEach-Object { $_.FullName })
+    # Личная настройка (как whitelist) в релиз не попадает: в ней пути к файлам
+    # конкретного человека. Проверяем явно, а не полагаемся на .gitignore.
+    $private = @($z.Entries | Where-Object { $_.FullName -match 'mcp_servers\.local\.json$|whitelist.*\.txt$' } |
+                ForEach-Object { $_.FullName })
 } finally { $z.Dispose() }
 Write-Host ("{0,-46} version={1} newline_rule={2} cyrillic_ok={3} pycache={4}" -f 'server.zip', $serverVer, $nl, $cyr, $pycache)
 # Раньше версия просто печаталась: архив со старым server.py проходил проверку
@@ -87,4 +92,8 @@ Write-Host ("{0,-46} version={1} newline_rule={2} cyrillic_ok={3} pycache={4}" -
 if ($serverVer -ne $Version) { throw "в server.zip версия $serverVer, а ожидалась $Version" }
 if (-not ($mcpFiles -match 'mcp_client\.py$')) { throw "в server.zip нет mcp_client.py" }
 if (-not ($mcpFiles -match 'mcp_servers\.json$')) { throw "в server.zip нет mcp_servers.json" }
+# Личная настройка (как whitelist) в релиз не попадает: в ней пути к файлам
+# конкретного человека. Проверяем явно, а не полагаемся на .gitignore.
+if ($private.Count -gt 0) { throw "в server.zip попали личные файлы: $($private -join ', ')" }
 Write-Host ("{0,-46} {1}" -f '  MCP-файлы в server.zip', ($mcpFiles -join ', '))
+Write-Host ("{0,-46} личных файлов нет (ок)" -f '')

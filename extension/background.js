@@ -82,9 +82,21 @@ async function getAuthToken() {
 
 async function getSettings() {
   const s = await axStorageGet('sync', Object.keys(DEFAULTS));
-  const merged = { ...DEFAULTS, ...s, authToken: '' };
-  merged.authToken = await getAuthToken();
-  return merged;
+  // authToken ЗДЕСЬ НЕ ОТДАЁТСЯ. Раньше он уходил в content-script, то есть
+  // лежал в памяти на каждой из 20+ страниц чата. Страница его не прочитает
+  // (content-script в изолированном мире), но секрету не место там, где он
+  // не нужен: маскирование команд делает сам background (см. maskCmd).
+  return { ...DEFAULTS, ...s, authToken: '' };
+}
+
+// Маскирует токен в тексте команды/вывода. Живёт в background, потому что
+// только он знает секрет — благодаря этому токен вообще не покидает его.
+function maskCmd(text, token) {
+  let out = String(text == null ? '' : text);
+  if (token) {
+    while (out.includes(token)) out = out.split(token).join('«скрыто»');
+  }
+  return out;
 }
 
 // Нормализация адреса сервера: без схемы добавляем http://, режем хвостовые слеши.
@@ -93,6 +105,12 @@ function normUrl(u) {
   if (u && !/^[a-z]+:\/\//i.test(u)) u = 'http://' + u;
   return u || DEFAULTS.serverUrl;
 }
+
+// Одноразовая миграция: старые установки держали токен в storage.sync,
+// который уезжает в облако вендора. Раньше миграцию запускал getSettings(),
+// но токен оттуда убрали — поэтому переезд теперь делаем явно на старте
+// service worker. Неблокирующе: ответ не ждёт.
+getAuthToken();
 
 async function pingServer(serverUrl) {
   const ctrl = new AbortController();
@@ -114,7 +132,10 @@ async function runCommand({ command, runner, timeout, cwd }) {
   const t = setTimeout(() => ctrl.abort(), ((timeout || s.timeout || 30) + 8) * 1000);
   try {
     const headers = { 'Content-Type': 'application/json' };
-    if (s.authToken) headers['X-Auth-Token'] = s.authToken;
+    // Токен берём напрямую из хранилища, а не из s.authToken: секрет больше
+    // не отдаётся в настройках (см. getSettings), но в заголовке он нужен.
+    const token = await getAuthToken();
+    if (token) headers['X-Auth-Token'] = token;
     const res = await fetch(base + '/run', {
       method: 'POST',
       headers,
@@ -125,10 +146,28 @@ async function runCommand({ command, runner, timeout, cwd }) {
     // blocked=true (whitelist) - это НЕ ошибка транспорта, пропускаем дальше,
     // чтобы content.js мог показать статус blocked вместо error
     if (!res.ok && !data.blocked) throw new Error(data.error || ('HTTP ' + res.status));
-    return data;
+    return maskResult(data, command, await getAuthToken());
   } finally {
     clearTimeout(t);
   }
+}
+
+// Маскирует токен в команде и выводе до того, как они попадут в content-script:
+// журнал, чат и экспорт в .md берут именно эти строки.
+function maskResult(data, command, token) {
+  if (!data || typeof data !== 'object') return data;
+  const out = {};
+  for (const k of Object.keys(data)) {
+    const v = data[k];
+    if (typeof v === 'string' && v.indexOf('«скрыто»') === -1) out[k] = maskCmd(v, token);
+    else out[k] = v;
+  }
+  if (typeof out.stdout === 'string' || typeof out.stderr === 'string') {
+    out.stdout = maskCmd(out.stdout, token);
+    out.stderr = maskCmd(out.stderr, token);
+  }
+  if (command && typeof out.command !== 'string') out.command = maskCmd(command, token);
+  return out;
 }
 
 // --- MCP (экспериментально) --------------------------------------------------
@@ -146,7 +185,8 @@ async function serverRequest(path, { method = 'GET', body, timeout } = {}) {
   try {
     const headers = {};
     if (method === 'POST') headers['Content-Type'] = 'application/json';
-    if (s.authToken) headers['X-Auth-Token'] = s.authToken;
+    const token = await getAuthToken();
+    if (token) headers['X-Auth-Token'] = token;
     const res = await fetch(base + path, {
       method,
       headers,
@@ -169,7 +209,8 @@ async function mcpStatus() {
   const t = setTimeout(() => ctrl.abort(), 8000);
   try {
     const headers = {};
-    if (s.authToken) headers['X-Auth-Token'] = s.authToken;
+    const token = await getAuthToken();
+    if (token) headers['X-Auth-Token'] = token;
     const res = await fetch(base + '/mcp/servers', { headers, signal: ctrl.signal });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { reachable: true, enabled: false, servers: [], error: data.error || ('HTTP ' + res.status) };
@@ -191,11 +232,22 @@ async function mcpListTools() {
 
 // Вызов инструмента MCP.
 async function mcpCallTool({ server, tool, args, timeout }) {
-  return await serverRequest('/mcp/call', {
+  const token = await getAuthToken();
+  const data = await serverRequest('/mcp/call', {
     method: 'POST',
     body: { server, tool, arguments: args || {} },
     timeout
   });
+  // Ответ инструмента — это тоже пользовательские данные: в нём может
+  // оказаться токен (например, инструмент читает файл с настройками).
+  return maskResult(data, '', token);
+}
+
+// Отчёт по инструментам для ИИ. Файл на рабочий стол пишет сервер — он
+// единственный, кто умеет ходить на диск, а не в браузер.
+async function mcpReport(save) {
+  const data = await serverRequest('/mcp/report', { method: 'POST', body: { save: !!save }, timeout: 120 });
+  return maskResult(data, '', await getAuthToken());
 }
 
 // Перечитывание конфига MCP без перезапуска сервера.
@@ -224,6 +276,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, result: await mcpCallTool(msg.payload || {}) });
       } else if (msg.type === 'AX_MCP_RELOAD') {
         sendResponse({ ok: true, result: await mcpReload() });
+      } else if (msg.type === 'AX_MCP_REPORT') {
+        sendResponse({ ok: true, result: await mcpReport(!!(msg.payload && msg.payload.save)) });
       } else {
         sendResponse({ ok: false, error: 'unknown message: ' + msg.type });
       }

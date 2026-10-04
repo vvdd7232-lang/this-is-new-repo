@@ -22,6 +22,10 @@ tools/shots/
 # User whitelist (личный, не в репозиторий)
 whitelist*.txt
 
+# Личная настройка MCP-серверов. Шаблон server/mcp_servers.json остаётся
+# выключенным и едет в server.zip; личный перекрывает его по имени.
+server/mcp_servers.local.json
+
 # Тесты расширения
 tests/node_modules/
 

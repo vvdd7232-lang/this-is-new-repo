@@ -366,7 +366,7 @@
         </div>
         <div class="banner banner-info">
           <svg><use href="#i-shield"></use></svg>
-          <span><b>Защита команд (whitelist).</b> Если сервер запущен с флагом <code>--whitelist FILE</code>, выполняются только команды из файла (по префиксу). Цепочки, пайпы и переводы строк запрещены; <code>view</code> тоже подчиняется списку.</span>
+          <span><b>Защита команд (whitelist).</b> Если сервер запущен с флагом <code>--whitelist FILE</code>, выполняются только команды из файла (по префиксу). Цепочки, пайпы и переводы строк запрещены; <code>view</code> тоже подчиняется списку. <br><b>В режиме whitelist MCP отключается целиком</b>: список проверяет shell-команды, а инструменты MCP — нет, поэтому их выполнение возвращает ошибку, а не проходит мимо защиты.</span>
         </div>
       </div>
     </details>
@@ -666,6 +666,14 @@
               <div class="row-inline"><span class="title">Инструменты</span>
                 <span class="ax-chip ax-chip-accent" id="mcpToolsCount">—</span></div>
               <div class="d" id="mcpTools">Нажмите «Проверить серверы», чтобы получить список инструментов.</div>
+            </div>
+
+            <div class="field">
+              <div class="row-inline">
+                <button id="mcpReport" class="ax-btn"><svg class="ax-ico"><use href="#i-copy"></use></svg>Скопировать список для ИИ</button>
+                <button id="mcpReportSave" class="ax-btn"><svg class="ax-ico"><use href="#i-download"></use></svg>Сохранить на рабочий стол</button>
+              </div>
+              <div class="d" id="mcpReportNote"></div>
             </div>
           </div>
         </div>

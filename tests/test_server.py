@@ -367,6 +367,166 @@ class TestMcpEndpoints(unittest.TestCase):
         self.assertEqual(status, 404)
 
 
+class TestMcpSecurity(unittest.TestCase):
+    """Защита MCP-пути: whitelist, таймаут, __proto__, обрезка ответа."""
+
+    def _handler_env(self, registry, whitelist=None, rate_limit=0, max_output=1_000_000):
+        """Поднимает реальный HTTP-сервер с нужными настройками."""
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        saved = (server.MCP_REGISTRY, server.AUTH_TOKEN, server.WHITELIST,
+                 server.RATE_LIMIT, server.MAX_OUTPUT)
+        server.MCP_REGISTRY = registry
+        server.AUTH_TOKEN = None
+        server.WHITELIST = whitelist
+        server.RATE_LIMIT = rate_limit
+        server.MAX_OUTPUT = max_output
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        srv.daemon_threads = True
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+        def restore():
+            (server.MCP_REGISTRY, server.AUTH_TOKEN, server.WHITELIST,
+             server.RATE_LIMIT, server.MAX_OUTPUT) = saved
+            srv.shutdown()
+            srv.server_close()
+
+        return http.client, srv.server_address[1], restore
+
+    def setUp(self):
+        self.cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_tmp_sec.json')
+        with open(self.cfg, 'w', encoding='utf-8') as fh:
+            json.dump({'servers': [{'name': 'fake', 'command': sys.executable,
+                                    'args': [os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                          'fake_mcp_server.py'), 'ok'],
+                                    'enabled': True}]}, fh)
+        self.reg = mcp_client.Registry(self.cfg)
+        self.addCleanup(self.reg.shutdown)
+        self.addCleanup(lambda: os.path.exists(self.cfg) and os.remove(self.cfg))
+
+    def _post(self, path, payload):
+        http_client, port, _ = getattr(self, '_srv')
+        conn = http_client.HTTPConnection('127.0.0.1', port, timeout=30)
+        conn.request('POST', path, body=json.dumps(payload),
+                     headers={'Content-Type': 'application/json'})
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        return resp.status, json.loads(raw.decode('utf-8'))
+
+    def _start(self, **kw):
+        self._srv = self._handler_env(self.reg, **kw)
+        self.addCleanup(self._srv[2])
+
+    # --- whitelist ---
+    def test_whitelist_blocks_mcp_call(self):
+        self._start(whitelist=frozenset({'ls'}))
+        status, data = self._post('/mcp/call', {'server': 'fake', 'tool': 'create_cube'})
+        self.assertEqual(status, 403)
+        self.assertIn('whitelist', data['error'])
+
+    def test_whitelist_blocks_mcp_tools(self):
+        # Даже список инструментов не отдаём: он поднимает процессы MCP-серверов.
+        self._start(whitelist=frozenset({'ls'}))
+        status, data = self._post('/mcp/tools', {})
+        self.assertEqual(status, 403)
+
+    def test_without_whitelist_mcp_works(self):
+        self._start(whitelist=None)
+        status, data = self._post('/mcp/call',
+                                 {'server': 'fake', 'tool': 'create_cube', 'arguments': {}})
+        self.assertEqual(status, 200)
+        self.assertTrue(data['ok'])
+
+    # --- таймаут ---
+    def test_timeout_is_capped(self):
+        """payload с timeout=999999 не должен держать процесс MCP-сервера часами."""
+        self._start()
+        captured = {}
+        orig = self.reg.call
+
+        def spy(server, name, args=None, timeout=None):
+            captured['timeout'] = timeout
+            return orig(server, name, args, 5)
+        self.reg.call = spy
+        self._post('/mcp/call', {'server': 'fake', 'tool': 'create_cube', 'timeout': 999999})
+        self.assertLessEqual(captured.get('timeout') or 0, 600)
+
+    def test_timeout_zero_becomes_sane(self):
+        self._start()
+        captured = {}
+        orig = self.reg.call
+
+        def spy(server, name, args=None, timeout=None):
+            captured['timeout'] = timeout
+            return orig(server, name, args, 5)
+        self.reg.call = spy
+        self._post('/mcp/call', {'server': 'fake', 'tool': 'create_cube', 'timeout': 0.001})
+        self.assertGreaterEqual(captured.get('timeout') or 0, 1)
+
+    # --- прототипное загрязнение ---
+    def test_proto_keys_rejected(self):
+        self._start()
+        for bad in ('__proto__', 'constructor', 'prototype'):
+            status, data = self._post('/mcp/call',
+                                      {'server': 'fake', 'tool': 'create_cube',
+                                       'arguments': {bad: {'x': 1}}})
+            self.assertEqual(status, 400, bad)
+            self.assertIn(bad, data['error'])
+
+    # --- обрезка ответа ---
+    def test_big_response_is_clipped(self):
+        self._start(max_output=100)
+        status, data = self._post('/mcp/call',
+                                 {'server': 'fake', 'tool': 'create_cube',
+                                  'arguments': {'big': 'A' * 5000}})
+        self.assertEqual(status, 200)
+        text = data['result']['content'][0]['text']
+        self.assertLess(len(text), 300)
+        self.assertIn('обрезано', text)
+
+    def test_clip_limit_follows_max_output_flag(self):
+        self.assertEqual(server._mcp_clip_limit(), server.MAX_OUTPUT)
+
+    # --- отчёт для ИИ ---
+    def test_report_lists_tools_with_examples(self):
+        self._start()
+        status, data = self._post('/mcp/report', {})
+        self.assertEqual(status, 200)
+        text = data['text']
+        self.assertEqual(data['count'], 3)
+        # Точное имя инструмента — ради этого отчёт и нужен.
+        self.assertIn('create_cube', text)
+        self.assertIn('execute-mcp', text)
+        self.assertIn('"server": "fake"', text)
+        self.assertIn('size', text)          # аргумент из inputSchema
+        self.assertIn('обязательный', text)
+
+    def test_report_saves_to_desktop(self):
+        self._start()
+        target = os.path.join(server._desktop_dir(), 'mcp-tools.md')
+        existed = os.path.exists(target)
+        status, data = self._post('/mcp/report', {'save': True})
+        self.assertEqual(status, 200)
+        self.assertTrue(data['saved_to'], data)
+        self.assertTrue(os.path.exists(data['saved_to']))
+        with open(data['saved_to'], encoding='utf-8') as fh:
+            self.assertIn('create_cube', fh.read())
+        if not existed:
+            os.remove(target)
+
+    def test_desktop_dir_is_a_directory(self):
+        self.assertTrue(os.path.isdir(server._desktop_dir()))
+
+    def test_report_marks_disabled_servers(self):
+        self.reg.clients['fake'].enabled = False
+        self._start()
+        status, data = self._post('/mcp/report', {})
+        self.assertEqual(status, 200)
+        self.assertIn('выключен', data['text'])
+
+
 class TestMcpStartupPrompt(unittest.TestCase):
     """Интерактивный выбор MCP при запуске сервера.
 

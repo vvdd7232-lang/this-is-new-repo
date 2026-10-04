@@ -30,7 +30,7 @@ import mcp_client as _mcp  # noqa: E402
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.8.2'
+VERSION = '2.9.0'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
@@ -39,6 +39,125 @@ RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
 WHITELIST = None  # None = выключен; frozenset префиксов (lowercase) = включён
 
 # --- MCP (экспериментально) --------------------------------------------------
+
+def _mcp_clip_limit():
+    """Лимит на один текстовый блок в ответе MCP, в байтах (0 = без лимита).
+
+    Отдельная функция, а не константа, чтобы лимит зависел от того же флага
+    --max-output, что и shell-вывод: два независимых рычага для одного понятия
+    «сколько максимум» быстро расходятся."""
+    return MAX_OUTPUT
+
+
+def _desktop_dir():
+    """Папка «Рабочий стол»: у разных людей она называется по-разному."""
+    home = os.path.expanduser('~')
+    candidates = [
+        os.path.join(home, 'Desktop'),
+        os.path.join(home, 'OneDrive', 'Desktop'),
+        os.path.join(home, 'Рабочий стол'),
+        os.path.join(home, 'OneDrive', 'Рабочий стол'),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    return home
+
+
+def _format_arg_schema(schema):
+    """Человекочитаемый разбор inputSchema: «size (number, обязательно)»."""
+    if not isinstance(schema, dict):
+        return []
+    props = schema.get('properties')
+    if not isinstance(props, dict) or not props:
+        return []
+    required = schema.get('required') or []
+    lines = []
+    for name in sorted(props):
+        spec = props[name] if isinstance(props[name], dict) else {}
+        kind = spec.get('type') or 'any'
+        if spec.get('enum'):
+            kind = '%s (%s)' % (kind, ' | '.join(str(x) for x in spec['enum']))
+        flag = 'обязательный' if name in required else 'необязательный'
+        desc = str(spec.get('description') or '').strip()
+        lines.append('  - %s (%s, %s)%s' % (
+            name, kind, flag, (': ' + desc[:120]) if desc else ''))
+    return lines
+
+
+def _mcp_tools_report():
+    """Собирает отчёт по инструментам MCP — в таком виде его можно скормить ИИ.
+
+    Зачем: модель не выдумывает имена инструментов, если у неё есть список.
+    Поэтому в отчёте точное имя, описание, схема аргументов и готовый
+    пример блока execute-mcp.
+    """
+    servers_out = []
+    total = 0
+    for client in sorted(MCP_REGISTRY.clients.values(), key=lambda c: c.name):
+        entry = {'name': client.name, 'command': client.command,
+                 'args': client.args, 'enabled': client.enabled,
+                 'error': '', 'tools': []}
+        if not client.enabled:
+            servers_out.append(entry)
+            continue
+        try:
+            entry['tools'] = client.list_tools()
+            MCP_REGISTRY.errors[client.name] = ''
+        except _mcp.McpError as e:
+            entry['error'] = str(e)
+        total += len(entry['tools'])
+        servers_out.append(entry)
+
+    lines = ['# MCP-инструменты (AI Execute Runner)', '']
+    lines.append('Список инструментов внешних MCP-серверов. Используй ТОЛЬКО эти имена:')
+    lines.append('несуществующий сервер или инструмент вернёт ошибку.')
+    lines.append('')
+    for entry in servers_out:
+        if not entry['enabled']:
+            lines.append('## %s — выключен (enabled: false)' % entry['name'])
+            continue
+        if entry['error']:
+            lines.append('## %s — НЕ ЗАПУСКАЕТСЯ: %s' % (entry['name'], entry['error']))
+            lines.append('')
+            continue
+        lines.append('## %s  (%s)' % (entry['name'], ' '.join([entry['command']] + entry['args'])))
+        lines.append('Инструментов: %d' % len(entry['tools']))
+        lines.append('')
+        for tool in entry['tools'][:_mcp.MAX_TOOLS_PER_SERVER]:
+            if not isinstance(tool, dict) or not tool.get('name'):
+                continue
+            lines.append('### %s' % tool['name'])
+            desc = str(tool.get('description') or '').strip()
+            if desc:
+                lines.append(desc[:400])
+            args = _format_arg_schema(tool.get('inputSchema'))
+            if args:
+                lines.append('Аргументы:')
+                lines.extend(args)
+            else:
+                lines.append('Аргументы: нет')
+            sample = {'server': entry['name'], 'tool': tool['name'], 'arguments': {}}
+            schema = tool.get('inputSchema')
+            if isinstance(schema, dict) and isinstance(schema.get('properties'), dict):
+                for pname, pspec in schema['properties'].items():
+                    if not isinstance(pspec, dict):
+                        continue
+                    if pspec.get('type') == 'number':
+                        sample['arguments'][pname] = 1
+                    elif pspec.get('type') == 'boolean':
+                        sample['arguments'][pname] = False
+                    elif pspec.get('enum'):
+                        sample['arguments'][pname] = pspec['enum'][0]
+                    else:
+                        sample['arguments'][pname] = 'значение'
+            lines.append('Пример блока:')
+            lines.append('```execute-mcp')
+            lines.append(json.dumps(sample, ensure_ascii=False))
+            lines.append('```')
+            lines.append('')
+    return servers_out, total, '\n'.join(lines)
+
 
 def _stdin_is_tty():
     """True только для настоящего интерактивного терминала.
@@ -665,7 +784,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
         req_path = urlparse(self.path).path.rstrip('/') or '/'
-        if req_path in ('/mcp/tools', '/mcp/call', '/mcp/reload'):
+        if req_path in ('/mcp/tools', '/mcp/call', '/mcp/reload', '/mcp/report'):
             return self._mcp_post(req_path)
         if req_path != '/run':
             return self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
@@ -702,6 +821,30 @@ class Handler(BaseHTTPRequestHandler):
         self._json(result, 200 if result.get('ok') else 400)
 
     # ---------- MCP (экспериментально) ----------
+    def _mcp_guard(self):
+        """Общие ограничения для /mcp/*. Возвращает (ошибка_json, код) либо None.
+
+        Проверки живут здесь, а не в расширении: расширение можно закрыть
+        страницей чата или подменить скрипт, а сервер — это точка доверия.
+        """
+        if not self._check_token():
+            return {'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401
+        if MCP_REGISTRY is None:
+            return {'ok': False, 'error': 'MCP выключен: запустите сервер с флагом --mcp'}, 400
+        # Whitelist проверяет shell-команды, а tools/call — нет. Молча пропускать
+        # его в whitelist-режиме означало бы, что защита дырявая: модель пишет
+        # файлы и исполняет код в обход. Лучше честный отказ.
+        if WHITELIST is not None:
+            return {'ok': False, 'error': 'whitelist-режим: вызовы MCP заблокированы, '
+                    'так как whitelist проверяет только shell-команды. '
+                    'Запустите сервер без --whitelist, чтобы использовать MCP.'}, 403
+        if RATE_LIMIT > 0:
+            ok_rate, wait_s = _check_rate()
+            if not ok_rate:
+                return {'ok': False, 'error': f'rate limit exceeded ({RATE_LIMIT}/min), '
+                        f'retry in {wait_s:.1f}s'}, 429
+        return None
+
     def _mcp_body(self):
         """Читает и валидирует JSON-тело. Возвращает (dict, None) или (None, ответ)."""
         try:
@@ -725,10 +868,9 @@ class Handler(BaseHTTPRequestHandler):
         return payload, None
 
     def _mcp_post(self, req_path):
-        if not self._check_token():
-            return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
-        if MCP_REGISTRY is None:
-            return self._json({'ok': False, 'error': 'MCP выключен: запустите сервер с флагом --mcp'}, 400)
+        blocked = self._mcp_guard()
+        if blocked is not None:
+            return self._json(blocked[0], blocked[1])
 
         payload, err = self._mcp_body()
         if err is not None:
@@ -748,6 +890,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': True, 'tools': tools, 'count': len(tools),
                                'servers': MCP_REGISTRY.describe()})
 
+        if req_path == '/mcp/report':
+            # Отчёт для ИИ: точный список инструментов со схемами и примерами.
+            # Почему здесь, а не в расширении: сервер уже знает протокол и
+            # единственный, кто умеет писать на диск.
+            servers_out, total, text = _mcp_tools_report()
+            saved_to = ''
+            if payload.get('save'):
+                target = os.path.join(_desktop_dir(), 'mcp-tools.md')
+                try:
+                    with open(target, 'w', encoding='utf-8') as fh:
+                        fh.write(text)
+                        fh.write('\n')
+                    saved_to = target
+                except OSError as e:
+                    return self._json({'ok': False, 'error': 'не удалось сохранить: %s' % e}, 400)
+            return self._json({'ok': True, 'count': total, 'text': text,
+                               'saved_to': saved_to, 'servers': servers_out})
+
         # /mcp/call
         server = str(payload.get('server') or '').strip()
         tool = str(payload.get('tool') or payload.get('name') or '').strip()
@@ -758,16 +918,44 @@ class Handler(BaseHTTPRequestHandler):
             arguments = {}
         if not isinstance(arguments, dict):
             return self._json({'ok': False, 'error': 'arguments должен быть объектом'}, 400)
+        # __proto__/constructor/prototype в аргументах — мусор, которому не
+        # место в протоколе: часть MCP-серверов (JS-реализации) спотыкается о
+        # такой ключ, а для Python он просто лишний.
+        for bad_key in ('__proto__', 'constructor', 'prototype'):
+            if bad_key in arguments:
+                return self._json({'ok': False,
+                                   'error': 'arguments: недопустимый ключ ' + bad_key}, 400)
         timeout = payload.get('timeout')
         try:
             timeout = float(timeout) if timeout else None
         except (TypeError, ValueError):
             timeout = None
+        # Потолок таймаута: иначе payload с timeout=999999 держит поток сервера
+        # и процесс MCP-сервера часами после того, как пользователь ушёл.
+        if timeout is not None:
+            timeout = max(1.0, min(timeout, 600.0))
         try:
             result = MCP_REGISTRY.call(server, tool, arguments, timeout)
         except _mcp.McpError as e:
             return self._json({'ok': False, 'error': str(e), 'server': server, 'tool': tool}, 400)
-        return self._json({'ok': True, 'server': server, 'tool': tool, 'result': result})
+        # Обрезка ответа MCP. Раньше лимит применялся только к shell-выводу, и
+        # инструмент, вернувший десятки мегабайт (лог, base64-текстура), уходил
+        # в JSON целиком — память, сеть и журнал страдали, а обрезка в
+        # расширении случалась уже после этого.
+        limit = _mcp_clip_limit()
+        truncated = False
+        if limit > 0:
+            content = result.get('content') if isinstance(result, dict) else None
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get('text'), str):
+                        if len(part['text']) > limit:
+                            part['text'] = part['text'][:limit] + (
+                                '\n… обрезано сервером (лимит %d байт)' % limit)
+                            truncated = True
+                            break
+        return self._json({'ok': True, 'server': server, 'tool': tool,
+                           'result': result, 'truncated': truncated})
 
     def log_message(self, fmt, *args):
         # Расширение дёргает /ping каждые ~30 сек для зелёного бейджа —
@@ -866,9 +1054,18 @@ def main():
             sys.exit(1)
     # --- MCP: приоритет флагов, иначе интерактивный выбор (экспериментально) ---
     global MCP_REGISTRY, MCP_CONFIG
-    _mcp_cfg = args.mcp_config or os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                              'mcp_servers.json')
-    _mcp_cfg = os.path.expanduser(_mcp_cfg)
+    # Личный конфиг важнее шаблона: пользователь правит mcp_servers.local.json
+    # (в .gitignore), а mcp_servers.json остаётся выключенным шаблоном, который
+    # едет в server.zip. Так настройки не затираются при обновлении и не уезжают
+    # в репозиторий — тем же приёмом, что и с whitelist.
+    _mcp_dir = os.path.dirname(os.path.abspath(__file__))
+    _mcp_local = os.path.join(_mcp_dir, 'mcp_servers.local.json')
+    if args.mcp_config:
+        _mcp_cfg = os.path.expanduser(args.mcp_config)
+    elif os.path.exists(_mcp_local):
+        _mcp_cfg = _mcp_local
+    else:
+        _mcp_cfg = os.path.join(_mcp_dir, 'mcp_servers.json')
     if args.mcp:
         want_mcp = True          # попросили явно
     elif args.no_mcp:

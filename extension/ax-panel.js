@@ -14,10 +14,13 @@
   const MSG_LOOP_OFF = '🛑 Автопилот остановлен (зацикливание) — дальше вручную.';
 
   // ---------- модалка подтверждения ----------
-  AX.confirmModal = function ({ lang, runner, command }) {
+  AX.confirmModal = function ({ lang, runner, command, danger, note }) {
     return new Promise((resolve) => {
       const backdrop = AX.createShadowModal();
-      const level = D.dangerLevel(command);
+      // danger приходит из вызывающего кода (например, MCP-блок опасен по
+      // имени инструмента, а не по тексту команды), level — по содержимому.
+      // Приоритет у явного danger.
+      const level = danger || D.dangerLevel(command);
       const dangerous = level !== null;
       backdrop.innerContent.innerHTML =
         '<div class="ax-modal">' +
@@ -58,6 +61,8 @@
       } else {
         warnText.textContent = 'Команда выполнится на вашем компьютере с вашими правами. Проверьте её перед запуском.';
       }
+      // Пояснение от вызывающего кода (сейчас — про опасный MCP-инструмент).
+      if (note) warnText.textContent = note + ' ' + warnText.textContent;
       warnBox.appendChild(warnText);
       const confirmBtn = backdrop.$('.ax-btn-confirm');
       if (!dangerous) confirmBtn.classList.add('safe');
@@ -625,9 +630,18 @@
       refreshPreview(cmd);
       let runRunner = maybeResniff(cmd);
       const mySeq = ++AX.axSeq;
-      if (!isAuto && AX.settings.requireConfirm) {
+      // MCP всегда требует подтверждения, даже при автопилоте: инструмент
+      // может исполнять произвольный код (execute_blender_code, run_code),
+      // и whitelist такие вызовы не покрывает. Раньше MCP-блоки уходили на
+      // выполнение молча — модель могла сама выполнить код в Blender/Godot.
+      const mcpHard = runRunner === 'mcp' && D.mcpBlockDanger(cmd) === 'hard';
+      if (mcpHard || (!isAuto && AX.settings.requireConfirm)) {
         const beforeModal = panelRunner();
-        const res = await AX.confirmModal({ lang: info.lang, runner: runRunner, command: cmd });
+        const res = await AX.confirmModal({
+          lang: info.lang, runner: runRunner, command: cmd,
+          danger: mcpHard ? 'hard' : null,
+          note: mcpHard ? 'MCP-инструмент исполняет код или меняет проект — подтверди, что это нужно' : null,
+        });
         if (!res || !res.ok) { fin(); return; }
         runRunner = res.runner || runRunner;
         if (runRunner !== beforeModal) { try { AX.memSet(cmd, runRunner); } catch (e) { /* ignore */ } }

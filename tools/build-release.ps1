@@ -53,7 +53,9 @@ $excludeDirs = @('__pycache__', 'node_modules', '.git')
 $excludeFiles = @('*.pyc', '*.pyo', '*.bak', '.DS_Store', 'Thumbs.db')
 # _preview_panel.html лежит рядом со страницами расширения, но это инструмент
 # разработки (полигон панели), а не часть расширения.
-$excludeExact = @('_preview_panel.html')
+# mcp_servers.local.json — личная настройка пользователя (как whitelist.txt):
+# в server.zip ей не место, иначе чужие пути к файлам уедут всем подряд.
+$excludeExact = @('_preview_panel.html', 'mcp_servers.local.json')
 
 function New-ZipFromDir($sourceDir, $zipPath, $includeRoot) {
     # Собираем через .NET, а не Compress-Archive: во-первых, .xpi не принимается
@@ -79,6 +81,12 @@ function New-ZipFromDir($sourceDir, $zipPath, $includeRoot) {
         }
         foreach ($pat in $excludeFiles) {
             Get-ChildItem -LiteralPath $payloadDir -Recurse -Force -File -Filter $pat -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+        # То же для точных имён: верхний уровень уже отфильтрован, а внутри
+        # server/ личный mcp_servers.local.json иначе уехал бы в релиз.
+        foreach ($name in $excludeExact) {
+            Get-ChildItem -LiteralPath $payloadDir -Recurse -Force -File -Filter $name -ErrorAction SilentlyContinue |
                 Remove-Item -Force -ErrorAction SilentlyContinue
         }
         [System.IO.Compression.ZipFile]::CreateFromDirectory(
