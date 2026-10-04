@@ -60,9 +60,11 @@
     const input = overlay.$('.ax-palette-input');
     input.addEventListener('input', () => { cursor = 0; render(); });
     input.addEventListener('keydown', onKeyDown);
-    overlay.addEventListener('mousedown', (e) => {
-      // клик по фону закрывает, клик по строке — обрабатывается отдельно
-      if (e.target === overlay) close();
+    // Клик по фону закрывает, клик по строке — обрабатывается отдельно.
+    // Слушатель внутри тени: до хоста закрытого shadow события не доходят,
+    // поэтому раньше клик мимо палитры её не закрывал.
+    overlay.innerContent.addEventListener('mousedown', (e) => {
+      if (!e.target || !e.target.closest || !e.target.closest('.ax-palette')) close();
     });
     overlay.$('.ax-palette-list').addEventListener('click', onListClick);
     overlay.$('.ax-palette-list').addEventListener('mousemove', (e) => {

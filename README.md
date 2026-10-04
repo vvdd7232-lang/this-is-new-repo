@@ -53,7 +53,7 @@ ai-execute-extension/
 │   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов (67)
 │   ├── features.test.js       ← палитра команд, свёрнутый вывод, журнал, секреты (102)
 │   ├── bridge.test.js         ← background.js и popup.js: сервер, токен, маршрутизация (37)
-│   ├── mcp.test.js            ← MCP: маршруты, токен, opt-in, безопасность, UI, execute-mcp, отчёт (110)
+│   ├── mcp.test.js            ← MCP: маршруты, токен, opt-in, безопасность, UI, execute-mcp, отчёт (114)
 │   ├── fake_mcp_server.py     ← тестовый MCP-сервер на stdio
 │   ├── test_mcp_client.py     ← MCP-клиент: протокол, таймауты, конфиг, PATH (26)
 │   └── test_server.py         ← сервер: whitelist, decoding, view, CORS, /mcp/*, безопасность MCP, отчёт (68)
@@ -519,7 +519,7 @@ powershell -ExecutionPolicy Bypass -File tools/shot.ps1   # → tools/shots/*.pn
 ```bash
 cd tests
 npm install          # один раз (jsdom)
-npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (597 проверок)
+npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (601 проверка)
 npm run test:server  # Python: сервер (102 проверки)
 npm run test:all     # всё вместе
 ```
@@ -542,7 +542,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.9.0
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.9.1
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

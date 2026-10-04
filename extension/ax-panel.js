@@ -73,14 +73,23 @@
         if (e.key === 'Escape') { cleanup(); resolve({ ok: false }); }
       };
       const cleanup = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
-      backdrop.addEventListener('click', (e) => {
+      // Слушатель вешаем ВНУТРИ тени, а не на хосте: события из shadow с
+      // mode:'closed' до хоста не доходят (проверено в Chrome), поэтому клик по
+      // «Выполнить»/«Отмена» просто не срабатывал — модалка не реагировала.
+      // Внутри тени e.target — настоящая кнопка, поэтому closest работает.
+      backdrop.innerContent.addEventListener('click', (e) => {
         // Подтверждение — это действие пользователя: синтетический клик из
         // page-JS не должен запускать команду.
         if (!AX.assumeTrustedEvents && e.isTrusted === false) {
           AX.toast('⛔ Подтверждение сгенерировано скриптом — игнорирую');
           return;
         }
-        if (e.target === backdrop || e.target.closest('.ax-btn-cancel')) { cleanup(); resolve({ ok: false }); }
+        // Клик мимо окна (по фону) — отмена.
+        if (!e.target || !e.target.closest || !e.target.closest('.ax-modal')) {
+          cleanup(); resolve({ ok: false });
+          return;
+        }
+        if (e.target.closest('.ax-btn-cancel')) { cleanup(); resolve({ ok: false }); }
         if (e.target.closest('.ax-btn-confirm')) { cleanup(); resolve({ ok: true, runner: sel.value }); }
       });
       document.addEventListener('keydown', onKey);
@@ -141,7 +150,11 @@
       cleanup();
     };
     backdrop.$('.ax-btn-cancel').onclick = (e) => { if (sure(e)) cleanup(); };
-    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) cleanup(); });
+    // Клик по фону закрывает. Слушатель — внутри тени: до хоста закрытого shadow
+    // события не доходят, поэтому раньше это правило молча не срабатывало.
+    backdrop.innerContent.addEventListener('click', (e) => {
+      if (!e.target || !e.target.closest || !e.target.closest('.ax-modal')) cleanup();
+    });
     document.addEventListener('keydown', onKey);
     document.body.appendChild(backdrop);
     try { backdrop.$('.ax-btn-insert').focus({ preventScroll: true }); } catch (e) { /* ignore */ }

@@ -292,6 +292,22 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
     /function \(\{ lang, runner, command, danger, note \}\)/.test(panelSrc)
     && /const level = danger \|\| D\.dangerLevel\(command\)/.test(panelSrc));
 
+  // Регрессия: обработчики модалки висели на ХОСТЕ закрытого shadow DOM, а
+  // такие события до хоста не доходят (проверено в Chrome) — кнопки «Выполнить»
+  // и «Отмена» молча не работали. Слушатель должен быть внутри тени.
+  console.log('\n[10c] кнопки модалки: слушатель внутри shadow, не на хосте');
+  check('confirmModal: слушатель на innerContent, не на backdrop',
+    /backdrop\.innerContent\.addEventListener\('click'/.test(panelSrc)
+    && !/backdrop\.addEventListener\('click'/.test(panelSrc));
+  check('showResultModal: слушатель на innerContent',
+    /backdrop\.innerContent\.addEventListener\('click'[\s\S]{0,200}?ax-modal/.test(panelSrc));
+  check('клик по фону отменяет, клик по кнопке — нет',
+    /!e\.target\.closest\('\.ax-modal'\)/.test(panelSrc)
+    && /ax-btn-confirm/.test(panelSrc) && /ax-btn-cancel/.test(panelSrc));
+  check('палитра: слушатель внутри тени',
+    /overlay\.innerContent\.addEventListener\('mousedown'/.test(read('ax-palette.js'))
+    && !/overlay\.addEventListener\('mousedown'/.test(read('ax-palette.js')));
+
   const coreJs = read('ax-core.js');
   check('ax-core: есть parseMcpBlock', /AX\.parseMcpBlock = function/.test(coreJs));
   check('ax-core: есть mcpResultToRun', /AX\.mcpResultToRun = function/.test(coreJs));
