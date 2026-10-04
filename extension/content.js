@@ -53,6 +53,12 @@
         if (sniffed) info = { lang: info.lang, runner: sniffed };
       }
       try {
+        // Повторный рендер чата создаёт НОВЫЙ <pre> под тот же блок — старая
+        // панель оставалась в DOM навсегда. Убираем осиротевшую перед вставкой.
+        const stale = pre.nextElementSibling;
+        if (stale && stale.classList && stale.classList.contains('ax-exec-panel')) {
+          stale.remove();
+        }
         const panel = AX.buildPanel(pre, info, command, { weak, forced: force });
         pre.insertAdjacentElement('afterend', panel);
         pre.dataset.axDone = '1';
@@ -134,18 +140,34 @@
   }
 
   // ---------- observer ----------
+  // Дешёвая проверка перед сканом: на каждый токен стрима приходит
+  // characterData-мутация, и раньше мы каждый раз гоняли querySelectorAll('pre')
+  // + полный detectRunner по всему поддереву. Если блок уже распознан и панель
+  // построена (pre.dataset.axDone), пересканировать нечего.
+  function needsScan(root) {
+    if (!root) return false;
+    if (root.tagName === 'PRE') return !root.dataset.axDone;
+    if (!root.querySelectorAll) return false;
+    const pres = root.querySelectorAll('pre');
+    for (const pre of pres) if (!pre.dataset.axDone) return true;
+    return false;
+  }
+
   const observer = new MutationObserver((muts) => {
     for (const m of muts) {
       if (m.type === 'characterData') {
         const el = m.target.parentElement;
-        if (el) scan(el.closest('pre') ? el.closest('pre').parentElement || document : el);
+        if (!el) continue;
+        const pre = el.closest('pre');
+        if (pre) { if (!pre.dataset.axDone) scan(pre.parentElement || document); continue; }
+        if (needsScan(el)) scan(el);
         continue;
       }
       for (const node of m.addedNodes) {
-        if (node.nodeType === 1) {
-          if (node.tagName === 'PRE') scan(node.parentElement || document);
-          else scan(node);
-        }
+        if (node.nodeType !== 1) continue;
+        if (node.classList && node.classList.contains('ax-exec-panel')) continue;
+        const root = node.tagName === 'PRE' ? (node.parentElement || document) : node;
+        if (needsScan(root)) scan(root);
       }
     }
   });

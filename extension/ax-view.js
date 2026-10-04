@@ -266,7 +266,11 @@
 
   AX.renderView = function (panel, view) {
     if (!panel || !view || !view.data_url) return;
-    let box = panel.querySelector('.ax-view-wrap');
+    // Панель живёт в закрытом shadow root — обращаемся через panel.$(...) и
+    // panel.innerContent, а не через document/DOM страницы.
+    const scope = panel.innerContent || panel;
+    const q = panel.$ ? (sel) => panel.$(sel) : (sel) => scope.querySelector(sel);
+    let box = q('.ax-view-wrap');
     if (!box) {
       box = document.createElement('div');
       box.className = 'ax-view-wrap';
@@ -278,9 +282,9 @@
       meta.className = 'ax-view-meta';
       box.appendChild(img);
       box.appendChild(meta);
-      const after = panel.querySelector('.ax-exec-after');
+      const after = q('.ax-exec-after');
       if (after && after.parentNode) after.parentNode.insertBefore(box, after.nextSibling);
-      else panel.appendChild(box);
+      else scope.appendChild(box);
     }
     box.querySelector('.ax-view-img').src = view.data_url;
     box.querySelector('.ax-view-meta').textContent = view.path + ' (' + view.mime + ', ' + view.size + ' B)';

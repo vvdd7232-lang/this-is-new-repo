@@ -1,0 +1,111 @@
+<!doctype html>
+<!-- Фикстура «страница чата» для E2E-проверки: во время smoke-прогона этот файл
+     отдаётся по адресу chatgpt.com через --host-resolver-rules, поэтому на нём
+     работает НАСТОЯЩИЙ content-script расширения (не полигон).
+     Разметка повторяет то, за что цепляется детектор: textarea композера,
+     поле с placeholder и execute-блок. -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ChatGPT</title>
+</head>
+<body>
+  <main>
+    <div id="chat">
+      <div class="msg-assistant">
+        <p>Готово, вот команда:</p>
+        <pre data-language="execute"><code>npm run build
+ls -la dist</code></pre>
+      </div>
+      <div class="msg-assistant">
+        <p>Обычный bash не должен запускаться:</p>
+        <pre data-language="bash"><code>echo "не execute"</code></pre>
+      </div>
+    </div>
+  </main>
+
+  <form id="composer">
+    <textarea id="prompt-textarea" data-testid="prompt-textarea"
+      placeholder="Сообщение ChatGPT"></textarea>
+    <button type="submit">Отправить</button>
+  </form>
+
+  <script>
+  // Подключаем РЕАЛЬНЫЕ скрипты расширения в порядке из manifest.json.
+  // Путь к каталогу расширения передаётся параметром ?ext=… (smoke.ps1 копирует
+  // extension/ во временный каталог и отдаёт его тем же сервером). Так проверяется
+  // ровно тот код, который попадает в сборку, — включая порядок загрузки модулей.
+  (function () {
+    var ext = new URLSearchParams(location.search).get('ext');
+    if (!ext) { document.title = 'SKIP: нет параметра ext'; return; }
+
+    // Ловим ошибки страницы и выводим их в консоль: --enable-logging пишет в
+    // stderr сообщения console.*, а необработанные исключения мимо идут.
+    window.__errs = [];
+    window.addEventListener('error', function (e) {
+      var msg = 'PAGEERROR: ' + (e.message || '') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno;
+      window.__errs.push(msg);
+      console.error(msg);
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var msg = 'PAGEREJECT: ' + ((e.reason && e.reason.message) || e.reason);
+      window.__errs.push(msg);
+      console.error(msg);
+    });
+    var base = ext.replace(/\/$/, '') + '/';
+    var order = ['ax-detector.js', 'ax-core.js', 'ax-view.js', 'ax-panel.js', 'ax-palette.js', 'content.js'];
+
+    // Минимальный макет API расширения. getURL отдаёт настоящий адрес файла —
+    // поэтому AX.shadowCssImport() даёт боевой @import, который браузер сам
+    // подгружает в shadow root (именно этот путь ломался с токенами).
+    window.chrome = {
+      runtime: {
+        id: 'smoke',
+        getManifest: function () { return { version: '2.6.1' }; },
+        getURL: function (p) { return base + p; },
+        sendMessage: function (msg, cb) {
+          var resp = msg && msg.type === 'AX_GET_SETTINGS'
+            ? { ok: true, settings: { autoExecute: false, autoWeak: false, showToasts: false, uiTheme: 'light' } }
+            : { ok: false, error: 'smoke: сервера нет' };
+          if (cb) { setTimeout(function () { cb(resp); }, 0); return undefined; }
+          return Promise.resolve(resp);
+        },
+        onMessage: { addListener: function () {} },
+      },
+      storage: {
+        sync: { get: function (k, cb) { cb && cb({}); }, set: function (i, cb) { cb && cb(); } },
+        local: { get: function (k, cb) { cb && cb({}); }, set: function (i, cb) { cb && cb(); } },
+        onChanged: { addListener: function () {} },
+      },
+    };
+
+    // Геометрия: в headless элементы могут иметь нулевой размер, а детектор поля
+    // ввода отбрасывает невидимые узлы (ширина < 60px, высота < 12px).
+    var field = document.getElementById('prompt-textarea');
+    field.style.cssText = 'width:700px;height:56px;display:block';
+    var pre = document.querySelector('pre[data-language="execute"]');
+    pre.style.cssText = 'display:block;width:600px;min-height:60px';
+
+    // content.js ставит setInterval (пинг каждые 30 с, перескан каждые 5 с).
+    // В headless с --virtual-time-budget бесконечные таймеры не дают виртуальному
+    // времени исчерпаться, и Chrome зависает. Здесь они не нужны — глушим.
+    var realSetInterval = window.setInterval;
+    window.setInterval = function () { return 0; };
+
+    for (var i = 0; i < order.length; i++) {
+      (function (src) {
+        var s = document.createElement('script');
+        s.src = base + src;
+        // Без async=false браузер грузит динамические скрипты параллельно и
+        // порядок выполнения не гарантирован: ax-core успевал иногда выполниться
+        // раньше ax-detector и падал с «core не может стартовать». Синхронная
+        // установка src по инлайновому appendChild выполняет их строго по порядку.
+        s.async = false;
+        s.onerror = function () { console.error('[SMOKE] не загрузился ' + src); };
+        document.head.appendChild(s);
+      })(order[i]);
+    }
+  })();
+  </script>
+</body>
+</html>

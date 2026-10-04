@@ -117,5 +117,84 @@ check('убирает одинарные', stripStringLiterals("a = 'y'"), "a = 
 check('не трогает код вне строк', stripStringLiterals('ls -la'), 'ls -la');
 check('пустая строка', stripStringLiterals(''), '');
 check('heredoc вырезан', dangerLevel('cat <<EOF\nsudo x\nEOF'), null);
+
+/* РЕГРЕССИЯ v2.6.1: кавычки больше не являются обходом детектора.
+ * Раньше stripStringLiterals() вырезал содержимое кавычек, и `rm -rf "/"`
+ * перестаёт совпадать с правилом `rm -rf /` → уходил в автопилот. */
+console.log('\ndangerLevel — обход кавычками закрыт (было null, стало hard):');
+for (const c of [
+  'rm -rf "/"',
+  "rm -rf '/'",
+  'rm -rf "$HOME"',
+  'rm -rf "~"',
+  'bash -c "rm -rf /"',
+  'sh -c "rm -rf /"',
+  'python -c "import shutil; shutil.rmtree(chr(47))"',
+  'python -c "import shutil, os; shutil.rmtree(\'/\')"',
+  'node -e "require(\'fs\').rmSync(\'/\', {recursive:true})"',
+]) {
+  check('обход: ' + c, dangerLevel(c), 'hard');
+}
+
+console.log('\ndangerLevel — PowerShell/Windows-деструктив (было null, стало hard):');
+for (const c of [
+  'Remove-Item -Recurse -Force $HOME',
+  'Remove-Item "C:\\Users\\me" -Recurse -Force',
+  'Remove-Item C:\\temp -Recurse',
+  'Format-Volume -DriveLetter D -Force',
+  'Clear-Disk -Number 1 -RemoveData',
+  'Initialize-Disk -Number 1',
+  'diskpart /s wipe.txt',
+  'rmdir /s /q C:\\Users\\me\\Desktop',
+  'reg delete HKLM\\Software\\Foo /f',
+  'bcdedit /set safeboot minimal',
+  'taskkill /f /im explorer.exe',
+  'vssadmin delete shadows /all',
+  'Stop-Computer',
+  'Restart-Computer -Force',
+  'git clean -fdx',
+  'git reset --hard HEAD~50',
+]) {
+  check('windows/ps: ' + c, dangerLevel(c), 'hard');
+}
+
+console.log('\ndangerLevel — уборка в рабочем каталоге НЕ пугает автопилот (регрессия на ложные срабатывания):');
+for (const c of [
+  'rm -rf ./node_modules',
+  'rm -rf build/',
+  'rm -rf ./dist',
+  'rm -rf ./*',
+  'rm -rf /tmp/my-build',
+  'rm -rf "C:\\build\\out"',
+  'rm -rf --help',
+  'Remove-Item .\\build -Force',
+  'Get-ChildItem -Recurse | Select-Object Name',
+  'python -c "print(\'rm -rf /\')"',
+  'echo "drop table" > notes.txt',
+]) {
+  check('не hard: ' + c, isHardDangerous(c), false);
+}
+check('литерал с опасным словом в записи файла остаётся null', dangerLevel("python - <<'PY'\nwith open('docs.md','w') as f:\n    f.write('rm -rf / и Remove-Item -Recurse -Force')\nPY"), null);
+
+console.log('\ndangerLevel — упоминания в поиске/тестах НЕ блокируют автопилот');
+console.log('(подписи-команды обязаны стоять в начале команды, а не внутри аргумента)');
+for (const c of [
+  'grep -r "Remove-Item -Recurse" .',
+  'git log --grep="shutil.rmtree"',
+  'python -m pytest tests/ -k rmtree',
+  'git commit -m "fix: rm -rf / handling in docs"',
+  'echo "rm -rf /" > script.sh',
+  'Select-String -Path *.md -Pattern "Format-Volume"',
+  'python -c "import shutil; print(shutil.which(\'git\'))"',
+]) {
+  check('не hard: ' + c, isHardDangerous(c), false);
+}
+
+console.log('\nunquotedSegments — фрагменты вне кавычек:');
+const { unquotedSegments } = detector;
+check('литерал вырезан', unquotedSegments('rm -rf "/"').join('|'), 'rm -rf ');
+check('код вне кавычек сохранён', unquotedSegments('rm -rf /tmp/x').join('|'), 'rm -rf /tmp/x');
+check('два литерала', unquotedSegments('a "x" b "y" c').join('|'), 'a  b  c');
+
 console.log('\nИТОГО: ' + passed + ' passed, ' + failed + ' failed');
 if (failed) { console.log('Провалы:', fails.join(', ')); process.exit(1); }

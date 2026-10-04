@@ -17,6 +17,23 @@ async function axStorageSet(area, items) {
     chrome.storage[area].set(items, () => resolve());
   });
 }
+
+async function axStorageRemove(area, keys) {
+  if (typeof browser !== 'undefined' && browser.storage && browser.storage[area]) {
+    return await browser.storage[area].remove(keys);
+  }
+  return new Promise((resolve) => {
+    chrome.storage[area].remove(keys, () => resolve());
+  });
+}
+
+// Токен доступа — секрет: только storage.local (не sync, который уезжает в облако).
+async function getAuthToken() {
+  try {
+    const t = await axStorageGet('local', ['authToken']);
+    return (t && t.authToken) || '';
+  } catch (e) { return ''; }
+}
 // Popup: быстрые настройки + проверка сервера + копирование промпта.
 // Остальные параметры — на странице настроек (options.html).
 const $ = (id) => document.getElementById(id);
@@ -30,15 +47,17 @@ function clamp(v, lo, hi, fb) {
 
 async function load() {
   let d;
+  let token = '';
   try {
-    d = await axStorageGet('sync', ['serverUrl', 'authToken', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay']);
+    d = await axStorageGet('sync', ['serverUrl', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay']);
+    token = await getAuthToken();
   } catch {
     $('status').className = 'status err';
     $('status').textContent = '❌ Не удалось прочитать настройки (расширение обновляется? закрой попап и открой заново)';
     return;
   }
   if (d.serverUrl) $('serverUrl').value = d.serverUrl;
-  if (d.authToken) $('authToken').value = d.authToken;
+  if (token) $('authToken').value = token;
   if (d.timeout != null) $('timeout').value = d.timeout;
   $('requireConfirm').checked = d.requireConfirm !== false;
   $('autoExecute').checked = d.autoExecute === true;
@@ -104,7 +123,11 @@ async function ping() {
 }
 
 function updateWarn() {
-  $('autoWarn').style.display = $('autoExecute').checked ? 'block' : 'none';
+  // #autoWarn в новой вёрстке — flex-плашка: показываем через flex, чтобы
+  // иконка и текст остались выровнены по верху.
+  const el = $('autoWarn');
+  if (!el) return;
+  el.style.display = $('autoExecute').checked ? 'flex' : 'none';
 }
 
 $('save').onclick = async () => {
@@ -114,7 +137,6 @@ $('save').onclick = async () => {
   if (autoSend && !autoInsert) { autoInsert = true; $('autoInsert').checked = true; }
   await axStorageSet('sync', {
     serverUrl: $('serverUrl').value.trim() || 'http://127.0.0.1:8765',
-    authToken: ($('authToken').value || '').trim(),
     timeout: clamp($('timeout').value, 2, 600, 30),
     requireConfirm: $('requireConfirm').checked,
     autoExecute: $('autoExecute').checked,
@@ -122,6 +144,8 @@ $('save').onclick = async () => {
     autoSend,
     autoDelay: clamp($('autoDelay').value, 0, 30, 3),
   });
+  await axStorageSet('local', { authToken: ($('authToken').value || '').trim() });
+  try { await axStorageRemove('sync', ['authToken']); } catch (e) { /* старые версии */ }
   updateWarn();
   ping();
 };

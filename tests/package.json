@@ -5,11 +5,19 @@
   "description": "Тесты detector (sniffRunner, detectRunner) и вставки картинки (view) для content-script",
   "main": "view-insert.test.js",
   "scripts": {
-    "test": "node sniff-runner.test.js && node detect-runner.test.js && node view-insert.test.js",
+    "test": "node sniff-runner.test.js && node detect-runner.test.js && node view-insert.test.js && node options-bindings.test.js && node panel-autopilot.test.js && node failure-explain.test.js && node ui-system.test.js && node features.test.js && node bridge.test.js && node mcp.test.js",
     "test:sniff": "node sniff-runner.test.js",
     "test:detect": "node detect-runner.test.js",
     "test:view": "node view-insert.test.js",
-    "test:server": "python -m unittest tests.test_server -v"
+    "test:options": "node options-bindings.test.js",
+    "test:panel": "node panel-autopilot.test.js",
+    "test:errors": "node failure-explain.test.js",
+    "test:ui": "node ui-system.test.js",
+    "test:features": "node features.test.js",
+    "test:bridge": "node bridge.test.js",
+    "test:mcp": "node mcp.test.js",
+    "test:server": "python -m unittest test_server -v",
+    "test:all": "npm test && npm run test:server"
   },
   "license": "MIT",
   "type": "commonjs",

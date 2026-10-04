@@ -1,256 +1,693 @@
-/* AI Execute Runner — стили панели под execute-блоками */
+/* AI Execute Runner — стили панели под execute-блоками.
+ *
+ * Панель и модалка живут в ЗАКРЫТОМ shadow root, поэтому:
+ *   - токены и базовые элементы приходят из ax-ui.css (подключается @import);
+ *   - внутри shadow root работают :host(...) вместо .ax-exec-panel...;
+ *   - цвета темы приходят через AX.applyPanelAppearance (переменные на хосте).
+ *
+ * Классы .ax-exec-panel, .ax-btn-run, .ax-exec-status, .ax-toast, #ax-server-dot
+ * и т.п. — контракт с JS, переименовывать нельзя.
+ */
 
-.ax-exec-panel {
-  margin: 6px 0 8px 0;
-  border: 1px solid #7c5cff44;
-  border-left: 3px solid #7c5cff;
-  border-radius: 8px;
-  padding: 7px 9px;
-  background: rgba(124, 92, 255, 0.06);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 13px;
-  line-height: 1.45;
-  color: inherit;
+/* ---------- хост панели ---------- */
+
+:host(.ax-exec-panel) {
+  display: block;
+  margin: 10px 0 14px;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-md);
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-1);
+  position: relative;
+  overflow: hidden;
+  font-size: var(--ax-fs-md);
 }
-.ax-exec-panel.ax-dark {
-  background: rgba(124, 92, 255, 0.12);
+
+/* Акцентная полоска слева — «это исполняемый блок» */
+:host(.ax-exec-panel)::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--ax-accent), var(--ax-accent-strong));
+  opacity: 0.9;
 }
+
+:host(.ax-exec-panel) .ax-shadow-content { padding: 12px 14px 12px 16px; }
+
+/* Слабая находка (EXECUTE?) — приглушаем акцент */
+:host(.ax-exec-panel.ax-weak)::before { background: linear-gradient(180deg, var(--ax-warn), #d97706); }
+
+/* ---------- шапка ---------- */
+
 .ax-exec-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ax-s-2);
   flex-wrap: wrap;
 }
+
 .ax-exec-badge {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 20px;
-  background: #7c5cff;
-  color: #fff;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border-radius: var(--ax-r-pill);
+  background: var(--ax-accent-soft);
+  color: var(--ax-accent-strong);
+  font-size: var(--ax-fs-xs);
   font-weight: 700;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
+
+.ax-exec-badge .ax-ico { width: 12px; height: 12px; }
+
+.ax-exec-header .ax-runner-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ax-exec-header .ax-runner-label {
+  font-size: var(--ax-fs-xs);
+  color: var(--ax-text-faint);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- выбор среды ---------- */
+
+.ax-runner-select {
+  appearance: none;
+  padding: 4px 22px 4px 8px;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-xs);
+  background-color: var(--ax-surface-2);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  color: var(--ax-text);
+  font: inherit;
+  font-size: var(--ax-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--ax-dur) var(--ax-ease), background-color var(--ax-dur) var(--ax-ease);
+}
+
+.ax-runner-select:hover { border-color: var(--ax-border-strong); }
+
+.ax-runner-select:focus-visible {
+  outline: 2px solid var(--ax-accent);
+  outline-offset: 2px;
+}
+
+.ax-runner-select option { background: var(--ax-surface); color: var(--ax-text); }
+
+.ax-runner-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ax-s-2);
+  margin: 0 0 var(--ax-s-3);
+  font-size: var(--ax-fs-sm);
+  font-weight: 600;
+  color: var(--ax-text-muted);
+}
+
+.ax-modal-select { width: auto; min-width: 180px; }
+
+/* ---------- действия ---------- */
+
+.ax-btn-run { padding: 7px 14px; }
+.ax-btn-run .ax-ico { width: 13px; height: 13px; }
+.ax-btn-copy-out, .ax-btn-quickauto, .ax-btn-cancel-auto { margin-left: 0; }
+
+/* Кнопка «Включить авто» — намеренно тише основной: это второстепенное действие */
+.ax-btn-quickauto { color: var(--ax-text-muted); }
+.ax-btn-quickauto:hover { color: var(--ax-accent-strong); border-color: var(--ax-accent-ring); }
+
+/* ---------- предпросмотр команды ---------- */
+
 .ax-exec-cmd-preview {
-  margin: 5px 0 0 0;
-  padding: 4px 7px;
-  background: rgba(0,0,0,0.06);
-  border-radius: 6px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11px;
-  white-space: nowrap;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ax-s-2);
+  margin: var(--ax-s-3) 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-code-bg);
+  color: var(--ax-code-text);
+  font-family: var(--ax-font-mono);
+  font-size: var(--ax-fs-sm);
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color var(--ax-dur) var(--ax-ease);
+}
+
+.ax-exec-cmd-preview:hover { border-color: var(--ax-accent-ring); }
+
+.ax-exec-cmd-preview .ax-preview-ico {
+  color: var(--ax-code-muted);
+  margin-top: 2px;
+  transition: transform var(--ax-dur) var(--ax-ease);
+}
+
+.ax-exec-cmd-preview.expanded .ax-preview-ico { transform: rotate(90deg); }
+
+.ax-exec-cmd-preview .ax-preview-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
 }
-.ax-exec-cmd-preview.expanded {
+
+.ax-exec-cmd-preview .ax-preview-hint {
+  flex: 0 0 auto;
+  font-family: var(--ax-font);
+  font-size: var(--ax-fs-xs);
+  color: var(--ax-code-muted);
+  opacity: 0.9;
+}
+
+.ax-exec-cmd-preview.expanded .ax-preview-text {
   white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 120px;
+  word-break: break-word;
+  max-height: 200px;
   overflow: auto;
-  cursor: pointer;
 }
-.ax-exec-after { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.ax-btn {
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
+
+.ax-exec-cmd-preview:focus-visible {
+  outline: 2px solid var(--ax-accent);
+  outline-offset: 2px;
 }
-.ax-btn-icon { padding: 4px 8px; }
-.ax-btn-run { background: #16a34a; color: #fff; }
-.ax-btn-run:hover { background: #15803d; }
-.ax-btn-run:disabled { opacity: 0.6; cursor: wait; }
-.ax-btn-copy { background: transparent; border-color: #999; color: inherit; }
-.ax-btn-insert { background: #7c5cff; color: #fff; }
-.ax-btn-insert:hover { background: #6a4de0; }
-.ax-exec-status { margin-top: 6px; font-size: 12px; }
-.ax-exec-status:empty { display: none; }
-.ax-exec-status.ax-running { color: #b45309; }
-.ax-exec-status.ax-ok { color: #16a34a; }
-.ax-exec-status.ax-err { color: #dc2626; }
+
+/* ---------- статус ---------- */
+
+.ax-exec-status {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--ax-s-2);
+  font-size: var(--ax-fs-sm);
+  color: var(--ax-text-muted);
+}
+
+.ax-exec-status:not(:empty) { display: flex; }
+
+.ax-exec-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--ax-text-faint);
+}
+
+.ax-exec-status.ax-running { color: var(--ax-warn); }
+.ax-exec-status.ax-running::before { background: var(--ax-warn); animation: ax-pulse 1.2s ease-in-out infinite; }
+.ax-exec-status.ax-ok { color: var(--ax-success); }
+.ax-exec-status.ax-ok::before { background: var(--ax-success); }
+.ax-exec-status.ax-err { color: var(--ax-danger); }
+.ax-exec-status.ax-err::before { background: var(--ax-danger); }
+
+@keyframes ax-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ax-exec-status.ax-running::before { animation: none; }
+}
+
+/* ---------- объяснение ошибки ---------- */
+
+.ax-exec-explain {
+  display: none;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: var(--ax-s-2);
+  padding: 9px 11px;
+  border: 1px solid var(--ax-warn);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-warn-soft);
+  color: var(--ax-warn);
+  font-size: var(--ax-fs-sm);
+  line-height: 1.5;
+}
+
+.ax-exec-explain.on { display: flex; }
+.ax-exec-explain .ax-ico { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 2px; }
+.ax-exec-explain b { font-weight: 650; }
+
+/* ---------- вывод ---------- */
+
 .ax-exec-output {
-  margin-top: 6px;
-  padding: 8px;
-  border-radius: 6px;
-  background: #0d1117;
-  color: #e6edf3;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
+  margin-top: var(--ax-s-3);
+  padding: 12px 14px;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-code-bg);
+  color: var(--ax-code-text);
+  font-family: var(--ax-font-mono);
+  font-size: var(--ax-fs-sm);
+  line-height: 1.55;
   white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 260px;
+  word-break: break-word;
+  max-height: 300px;
   overflow: auto;
+  tab-size: 4;
 }
 
-/* Модалка подтверждения */
-.ax-modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 2147483647;
-  display: flex; align-items: center; justify-content: center;
-  padding: 16px;
-}
-.ax-modal {
-  background: #fff; color: #111;
-  border-radius: 14px;
-  max-width: 640px; width: 100%;
-  max-height: 85vh; overflow: auto;
-  padding: 18px;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
-}
-.ax-modal h3 { margin: 0 0 8px 0; font-size: 16px; }
-.ax-modal pre {
-  background: #0d1117; color: #e6edf3;
-  padding: 10px; border-radius: 8px;
-  font-size: 12px; white-space: pre-wrap; word-break: break-all;
-  max-height: 300px; overflow: auto;
-}
-.ax-modal .ax-warn {
-  margin: 10px 0; padding: 8px 10px;
-  background: #fef3c7; border: 1px solid #f59e0b;
-  border-radius: 8px; color: #92400e; font-size: 13px;
-}
-.ax-modal .ax-danger {
-  background: #fee2e2; border-color: #ef4444; color: #991b1b;
-}
-.ax-modal-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
-.ax-btn-cancel { background: #e5e7eb; color: #111; }
-.ax-btn-confirm { background: #dc2626; color: #fff; }
-.ax-btn-confirm.safe { background: #16a34a; }
+.ax-exec-output::selection { background: var(--ax-accent-ring); }
 
-/* Выбор среды выполнения */
-.ax-runner-select {
-  font-size: 11px;
-  padding: 1px 4px;
-  border-radius: 6px;
-  border: 1px solid #999;
-  background: transparent;
-  color: inherit;
-}
-.ax-runner-row {
-  margin: 8px 0 2px 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-.ax-modal-select {
-  background: #fff;
-  color: #111;
+.ax-exec-after {
+  display: none;
+  gap: var(--ax-s-2);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--ax-s-3);
+  padding-top: var(--ax-s-3);
+  border-top: 1px solid var(--ax-border);
 }
 
-/* Тосты */
-.ax-toast {
-  position: fixed; bottom: 24px; left: 50%; pointer-events: none;
-  transform: translateX(-50%);
-  background: #111; color: #fff;
-  padding: 10px 16px; border-radius: 10px;
-  font-size: 13px; z-index: 2147483647;
-  font-family: system-ui, sans-serif;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-  opacity: 0; transition: opacity .25s;
-}
-.ax-toast.ax-show { opacity: 1; }
+/* ---------- превью картинки (view) ---------- */
 
-/* Индикатор сервера */
-#ax-server-dot {
-  position: fixed; right: 16px; bottom: 16px;
-  z-index: 2147483646;
-  font-family: system-ui, sans-serif;
-  font-size: 12px; font-weight: 600;
-  padding: 6px 12px; border-radius: 20px;
-  background: #111; color: #fff;
-  cursor: pointer; user-select: none;
-  box-shadow: 0 4px 14px rgba(0,0,0,.25);
-}
-#ax-server-dot.ax-online { background: #16a34a; }
-#ax-server-dot.ax-offline { background: #dc2626; }
-
-@media (prefers-color-scheme: dark) {
-  .ax-modal {
-    background: #1f2937;
-    color: #f3f4f6;
-  }
-  .ax-modal-select {
-    background: #374151;
-    color: #f3f4f6;
-    border-color: #4b5563;
-  }
-  .ax-btn-cancel {
-    background: #374151;
-    color: #f3f4f6;
-  }
-}
-.ax-runner-select option {
-  background: #fff;
-  color: #111;
-}
-@media (prefers-color-scheme: dark) {
-  .ax-runner-select option {
-    background: #1f2937;
-    color: #f3f4f6;
-  }
-}
-
-/* --- Размеры панелей (panelSize) --- */
-.ax-exec-panel.ax-size-compact { font-size: 12px; padding: 5px 7px; }
-.ax-exec-panel.ax-size-compact .ax-exec-output { font-size: 11px; }
-.ax-exec-panel.ax-size-compact .ax-exec-cmd-preview { font-size: 10px; }
-.ax-exec-panel.ax-size-compact .ax-exec-badge { font-size: 9px; }
-.ax-exec-panel.ax-size-large { font-size: 15px; padding: 10px 12px; }
-.ax-exec-panel.ax-size-large .ax-exec-output { font-size: 13px; }
-.ax-exec-panel.ax-size-large .ax-exec-cmd-preview { font-size: 12px; }
-.ax-exec-panel.ax-size-large .ax-btn { font-size: 13px; padding: 5px 12px; }
-
-/* --- Тема панели (uiTheme, перебивает prefers-color-scheme) --- */
-.ax-exec-panel.ax-theme-light {
-  background: rgba(124, 92, 255, 0.06);
-  color: inherit;
-}
-.ax-exec-panel.ax-theme-dark {
-  background: rgba(124, 92, 255, 0.14);
-  color: #f3f4f6;
-}
-.ax-exec-panel.ax-theme-dark .ax-exec-cmd-preview {
-  background: rgba(255,255,255,0.08);
-}
-
-/* --- Сворачивание вывода после выполнения --- */
-.ax-exec-panel.ax-collapsed .ax-exec-output { display: none !important; }
-.ax-exec-panel.ax-collapsed .ax-exec-after { margin-top: 4px; }
-
-/* --- Превью изображения (команда view) --- */
 .ax-view-wrap {
-  margin-top: 8px;
-  padding: 6px;
-  border-radius: 8px;
-  background: rgba(0,0,0,0.05);
+  margin-top: var(--ax-s-3);
+  padding: var(--ax-s-2);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface-2);
   display: inline-block;
   max-width: 100%;
 }
+
 .ax-view-img {
   display: block;
   max-width: 100%;
   max-height: 400px;
-  border-radius: 6px;
-  cursor: pointer;
+  border-radius: var(--ax-r-xs);
+  cursor: zoom-in;
+  background: var(--ax-surface-3);
 }
+
 .ax-view-meta {
-  margin-top: 4px;
-  font-size: 11px;
-  opacity: 0.7;
+  margin-top: 6px;
+  font-family: var(--ax-font-mono);
+  font-size: var(--ax-fs-xs);
+  color: var(--ax-text-muted);
   word-break: break-all;
 }
-.ax-theme-dark .ax-view-wrap { background: rgba(255,255,255,0.08); }
+
 .ax-btn-view-retry {
-  display: block;
-  margin-top: 6px;
-  background: #7c5cff;
-  color: #fff;
-  border-color: #7c5cff;
+  display: inline-flex;
+  margin-top: var(--ax-s-2);
+  background: var(--ax-accent-soft);
+  border-color: transparent;
+  color: var(--ax-accent-strong);
 }
-.ax-btn-view-retry:hover { background: #6a4de0; }
+
+/* ---------- модалки ---------- */
+
+:host(.ax-modal-backdrop) {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ax-s-4);
+  background: rgba(11, 13, 20, 0.55);
+  backdrop-filter: blur(3px);
+  animation: ax-fade var(--ax-dur) var(--ax-ease);
+}
+
+@keyframes ax-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.ax-modal {
+  width: 100%;
+  max-width: 660px;
+  max-height: 86vh;
+  overflow: auto;
+  padding: var(--ax-s-5);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-lg);
+  background: var(--ax-surface);
+  color: var(--ax-text);
+  box-shadow: var(--ax-shadow-3);
+  animation: ax-rise 200ms var(--ax-ease);
+}
+
+@keyframes ax-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host(.ax-modal-backdrop), .ax-modal { animation: none; }
+}
+
+.ax-modal h3,
+.ax-modal .ax-modal-title {
+  margin: 0 0 var(--ax-s-2);
+  font-size: var(--ax-fs-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ax-modal-desc {
+  margin-bottom: var(--ax-s-3);
+  font-size: var(--ax-fs-sm);
+  color: var(--ax-text-muted);
+}
+
+.ax-modal pre {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-code-bg);
+  color: var(--ax-code-text);
+  font-family: var(--ax-font-mono);
+  font-size: var(--ax-fs-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.ax-modal .ax-warn {
+  display: flex;
+  gap: var(--ax-s-2);
+  margin: var(--ax-s-3) 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ax-warn);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-warn-soft);
+  color: var(--ax-warn);
+  font-size: var(--ax-fs-sm);
+  line-height: 1.5;
+}
+
+.ax-modal .ax-danger {
+  border-color: var(--ax-danger);
+  background: var(--ax-danger-soft);
+  color: var(--ax-danger);
+  font-weight: 600;
+}
+
+.ax-modal-row {
+  display: flex;
+  gap: var(--ax-s-2);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: var(--ax-s-4);
+}
+
+/* ---------- палитра команд (Ctrl+Shift+E) ---------- */
+
+:host(.ax-palette-host) {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+  background: rgba(11, 13, 20, 0.5);
+  backdrop-filter: blur(3px);
+  animation: ax-fade var(--ax-dur) var(--ax-ease);
+}
+
+:host(.ax-palette-host.ax-palette-open) { display: flex; }
+
+.ax-palette {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-lg);
+  background: var(--ax-surface);
+  box-shadow: var(--ax-shadow-3);
+  animation: ax-rise 180ms var(--ax-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host(.ax-palette-host), .ax-palette { animation: none; }
+}
+
+.ax-palette-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ax-s-2);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ax-border);
+}
+
+.ax-palette-input-wrap { flex: 1 1 auto; min-width: 0; }
+
+.ax-palette-input {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 0;
+  background: transparent;
+  font-size: var(--ax-fs-lg);
+  font-weight: 600;
+  color: var(--ax-text);
+}
+
+.ax-palette-input:focus { outline: none; box-shadow: none; }
+
+.ax-palette-shortcut,
+.ax-palette-foot b {
+  font-family: var(--ax-font-mono);
+  font-size: var(--ax-fs-xs);
+  font-weight: 600;
+  color: var(--ax-text-muted);
+  border: 1px solid var(--ax-border);
+  border-radius: var(--ax-r-xs);
+  padding: 2px 6px;
+  background: var(--ax-surface-2);
+  white-space: nowrap;
+}
+
+.ax-palette-list {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 6px;
+}
+
+.ax-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ax-s-2);
+  padding: 9px 10px;
+  border-radius: var(--ax-r-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.ax-palette-item.on {
+  background: var(--ax-accent-soft);
+  border-color: var(--ax-accent-ring);
+}
+
+.ax-palette-item.pinned .ax-palette-ico { color: var(--ax-accent); }
+.ax-palette-ico { color: var(--ax-text-faint); flex: 0 0 auto; }
+.ax-palette-item.on .ax-palette-ico { color: var(--ax-accent-strong); }
+
+.ax-palette-main { flex: 1 1 auto; min-width: 0; }
+
+.ax-palette-cmd {
+  font-family: var(--ax-font-mono);
+  font-size: var(--ax-fs-sm);
+  color: var(--ax-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ax-palette-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: var(--ax-fs-xs);
+  color: var(--ax-text-faint);
+}
+
+.ax-palette-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--ax-dur) var(--ax-ease);
+}
+
+.ax-palette-item:hover .ax-palette-actions,
+.ax-palette-item.on .ax-palette-actions { opacity: 1; }
+
+.ax-palette-actions .ax-btn {
+  padding: 4px 6px;
+  font-size: var(--ax-fs-sm);
+  line-height: 1;
+  color: var(--ax-text-muted);
+}
+
+.ax-palette-actions .ax-btn:hover { color: var(--ax-text); }
+
+.ax-palette-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 26px 16px;
+  color: var(--ax-text-muted);
+  font-size: var(--ax-fs-sm);
+  text-align: center;
+}
+
+.ax-palette-empty .ax-ico { width: 16px; height: 16px; opacity: 0.7; }
+
+.ax-palette-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--ax-border);
+  background: var(--ax-surface-2);
+  font-size: var(--ax-fs-xs);
+  color: var(--ax-text-muted);
+}
+
+.ax-palette-foot span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ---------- свёрнутый шумный вывод ---------- */
+
+.ax-exec-output.ax-noisy {
+  max-height: 190px;
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+}
+
+.ax-exec-output.ax-noisy::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 72px;
+  background: linear-gradient(180deg, transparent, var(--ax-code-bg));
+  pointer-events: none;
+}
+
+.ax-noisy-hint {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--ax-s-2);
+  padding: 7px 10px;
+  border: 1px dashed var(--ax-border-strong);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface-2);
+  color: var(--ax-text-muted);
+  font-size: var(--ax-fs-xs);
+  cursor: pointer;
+}
+
+.ax-noisy-hint.on { display: flex; }
+.ax-noisy-hint b { color: var(--ax-text); font-weight: 650; }
+.ax-noisy-hint .ax-ico { width: 13px; height: 13px; }
+
+/* ---------- тосты (живут в DOM страницы) ---------- */
+
+.ax-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 8px);
+  display: flex;
+  align-items: center;
+  gap: var(--ax-s-2);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 11px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ax-r-pill);
+  background: rgba(17, 19, 28, 0.94);
+  color: #f4f6fb;
+  font-family: var(--ax-font);
+  font-size: var(--ax-fs-md);
+  font-weight: 500;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2147483647;
+  box-shadow: var(--ax-shadow-3);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 220ms var(--ax-ease), transform 220ms var(--ax-ease);
+}
+
+.ax-toast.ax-show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- индикатор сервера ---------- */
+
+#ax-server-dot {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--ax-r-pill);
+  background: rgba(17, 19, 28, 0.92);
+  color: #eef1f8;
+  font-family: var(--ax-font);
+  font-size: var(--ax-fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: var(--ax-shadow-2);
+  backdrop-filter: blur(8px);
+  transition: transform var(--ax-dur) var(--ax-ease), background var(--ax-dur) var(--ax-ease);
+}
+
+#ax-server-dot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ax-text-faint, #868da0);
+  box-shadow: 0 0 0 3px rgba(134, 141, 160, 0.18);
+}
+
+#ax-server-dot:hover { transform: translateY(-1px); }
+#ax-server-dot.ax-online::before { background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2); }
+#ax-server-dot.ax-offline::before { background: #f97066; box-shadow: 0 0 0 3px rgba(249, 112, 102, 0.2); }
+
+/* ---------- размеры панели (настройка panelSize) ---------- */
+
+:host(.ax-size-compact) .ax-shadow-content { padding: 8px 10px 8px 12px; font-size: var(--ax-fs-sm); }
+:host(.ax-size-compact) .ax-exec-output { font-size: var(--ax-fs-xs); max-height: 220px; }
+:host(.ax-size-compact) .ax-exec-cmd-preview { font-size: var(--ax-fs-xs); padding: 7px 9px; }
+:host(.ax-size-compact) .ax-exec-badge { font-size: 10px; }
+
+:host(.ax-size-large) .ax-shadow-content { padding: 16px 18px 16px 20px; font-size: var(--ax-fs-lg); }
+:host(.ax-size-large) .ax-exec-output { font-size: var(--ax-fs-md); max-height: 420px; }
+:host(.ax-size-large) .ax-exec-cmd-preview { font-size: var(--ax-fs-md); }
+:host(.ax-size-large) .ax-btn { font-size: var(--ax-fs-md); padding: 9px 15px; }
+
+/* ---------- сворачивание после выполнения ---------- */
+
+:host(.ax-collapsed) .ax-exec-output { display: none !important; }
+:host(.ax-collapsed) .ax-exec-after { margin-top: var(--ax-s-2); padding-top: var(--ax-s-2); }

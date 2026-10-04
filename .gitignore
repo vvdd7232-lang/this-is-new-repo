@@ -13,6 +13,12 @@ Thumbs.db
 dist/
 web-ext-artifacts/
 
+# Копия расширения для smoke (генерируется tools/smoke.ps1)
+tools/fixtures/_ext_smoke/
+
+# Скриншоты интерфейса (генерируются tools/shot.ps1)
+tools/shots/
+
 # User whitelist (личный, не в репозиторий)
 whitelist*.txt
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AI Execute Runner",
-  "version": "2.6.0",
-  "description": "Выполнение команд из execute-блоков ChatGPT / Claude / Arena на локальном ПК. Нейросеть пишет ```execute — вы подтверждаете — команда выполняется локально — вывод возвращается в чат.",
+  "version": "2.7.0",
+  "description": "Ð’Ñ‹Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¸Ðµ ÐºÐ¾Ð¼Ð°Ð½Ð´ Ð¸Ð· execute-Ð±Ð»Ð¾ÐºÐ¾Ð² ChatGPT / Claude / Arena Ð½Ð° Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½Ð¾Ð¼ ÐŸÐš. ÐÐµÐ¹Ñ€Ð¾ÑÐµÑ‚ÑŒ Ð¿Ð¸ÑˆÐµÑ‚ ```execute â€” Ð²Ñ‹ Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´Ð°ÐµÑ‚Ðµ â€” ÐºÐ¾Ð¼Ð°Ð½Ð´Ð° Ð²Ñ‹Ð¿Ð¾Ð»Ð½ÑÐµÑ‚ÑÑ Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½Ð¾ â€” Ð²Ñ‹Ð²Ð¾Ð´ Ð²Ð¾Ð·Ð²Ñ€Ð°Ñ‰Ð°ÐµÑ‚ÑÑ Ð² Ñ‡Ð°Ñ‚.",
   "permissions": [
     "storage",
     "activeTab",
@@ -47,6 +47,7 @@
         "ax-core.js",
         "ax-view.js",
         "ax-panel.js",
+        "ax-palette.js",
         "content.js"
       ],
       "css": [
@@ -63,6 +64,38 @@
     "page": "options.html",
     "open_in_tab": true
   },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "ax-ui.css",
+        "content.css"
+      ],
+      "matches": [
+        "*://chatgpt.com/*",
+        "*://chat.openai.com/*",
+        "*://claude.ai/*",
+        "*://*.claude.ai/*",
+        "*://arena.ai/*",
+        "*://*.arena.ai/*",
+        "*://lmarena.ai/*",
+        "*://*.lmarena.ai/*",
+        "*://gemini.google.com/*",
+        "*://copilot.microsoft.com/*",
+        "*://aistudio.google.com/*",
+        "*://grok.com/*",
+        "*://*.grok.com/*",
+        "*://perplexity.ai/*",
+        "*://*.perplexity.ai/*",
+        "*://chat.deepseek.com/*",
+        "*://chat.qwen.ai/*",
+        "*://chat.mistral.ai/*",
+        "*://google.com/*",
+        "*://www.google.com/*",
+        "*://google.ru/*",
+        "*://www.google.ru/*"
+      ]
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

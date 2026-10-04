@@ -1,0 +1,373 @@
+/* AI Execute Runner — дизайн-система.
+ *
+ * Один файл токенов и базовых элементов для всех поверхностей расширения:
+ *  - shadow root панели и модалки (подключается через @import в ax-panel.js);
+ *  - страница настроек и попап (подключается как обычный <link>).
+ *
+ * Правила:
+ *  1. Никаких «магических» цветов в разметке — только var(--ax-*).
+ *  2. Тема задаётся атрибутом data-ax-theme="light|dark" на корне
+ *     (в shadow root — на обёртке .ax-shadow-content), плюс есть
+ *     авто-режим по prefers-color-scheme.
+ *  3. Классы/идентификаторы, которые ищет JS (.ax-exec-panel, .ax-btn-run,
+ *     .ax-exec-status, .ax-toast, #ax-server-dot …), не переименовываются:
+ *     это контракт между вёрсткой и логикой.
+ */
+
+/* :host нужен рядом с :root не для красоты: content.css/ax-ui.css попадают
+   внутрь shadow root через @import, где :root не соответствует ничему.
+   Без :host токены отступов/радиусов/теней не доходят до панели и модалки —
+   padding: var(--ax-s-5) молча превращается в 0, и карточка «разъезжается».
+   Раньше это маскировалось дубликатом цветов в JS (AX.PANEL_THEME_VARS),
+   который со временем разошёлся с CSS — поэтому держим токены только здесь. */
+:root,
+:host,
+.ax-scope {
+  color-scheme: light;
+
+  /* Палитра: глубокий индиго как акцент, изумруд для успеха, янтарь для внимания */
+  --ax-accent: #5b5bd6;
+  --ax-accent-strong: #4a48c4;
+  --ax-accent-soft: rgba(91, 91, 214, 0.12);
+  --ax-accent-ring: rgba(91, 91, 214, 0.35);
+  --ax-success: #0f9d58;
+  --ax-success-soft: rgba(15, 157, 88, 0.12);
+  --ax-danger: #d92d20;
+  --ax-danger-soft: rgba(217, 45, 32, 0.1);
+  --ax-warn: #b54708;
+  --ax-warn-soft: rgba(181, 71, 8, 0.12);
+  --ax-info: #1570ef;
+
+  /* Поверхности и текст */
+  --ax-bg: #f6f7fb;
+  --ax-surface: #ffffff;
+  --ax-surface-2: #f1f3f9;
+  --ax-surface-3: #e7eaf3;
+  --ax-text: #171a21;
+  --ax-text-muted: #5b6274;
+  --ax-text-faint: #868da0;
+  --ax-border: #e2e5ef;
+  --ax-border-strong: #cbd1e0;
+
+  /* Цвет на акцентной заливке и «шайба» переключателей */
+  --ax-on-accent: #ffffff;
+  --ax-knob: #ffffff;
+
+  /* Код */
+  --ax-code-bg: #0f1220;
+  --ax-code-text: #e8ecf6;
+  --ax-code-muted: #9aa4bd;
+
+  /* Радиусы */
+  --ax-r-xs: 6px;
+  --ax-r-sm: 9px;
+  --ax-r-md: 12px;
+  --ax-r-lg: 16px;
+  --ax-r-pill: 999px;
+
+  /* Отступы (шаг 4px) */
+  --ax-s-1: 4px;
+  --ax-s-2: 8px;
+  --ax-s-3: 12px;
+  --ax-s-4: 16px;
+  --ax-s-5: 20px;
+  --ax-s-6: 24px;
+  --ax-s-8: 32px;
+
+  /* Тени: мягкие, многослойные */
+  --ax-shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.04);
+  --ax-shadow-2: 0 4px 12px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.05);
+  --ax-shadow-3: 0 18px 48px rgba(16, 24, 40, 0.18), 0 4px 12px rgba(16, 24, 40, 0.08);
+
+  /* Типографика */
+  --ax-font: "Inter", "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ax-font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --ax-fs-xs: 11px;
+  --ax-fs-sm: 12px;
+  --ax-fs-md: 13px;
+  --ax-fs-lg: 15px;
+  --ax-fs-xl: 18px;
+  --ax-fs-2xl: 22px;
+
+  /* Движение */
+  --ax-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ax-dur: 160ms;
+}
+
+/* Тёмная тема: либо явный data-ax-theme="dark", либо системная.
+   :host([data-ax-theme="dark"]) обязателен — обычный [data-ax-theme="dark"]
+   не пересекает границу shadow root, поэтому тёмная тема внутри панели и
+   модалки не применялась бы. */
+[data-ax-theme="dark"],
+:host([data-ax-theme="dark"]),
+.ax-dark-scope {
+  color-scheme: dark;
+  --ax-accent: #8b8bf5;
+  --ax-accent-strong: #a3a3ff;
+  --ax-accent-soft: rgba(139, 139, 245, 0.16);
+  --ax-accent-ring: rgba(139, 139, 245, 0.4);
+  --ax-success: #34d399;
+  --ax-success-soft: rgba(52, 211, 153, 0.14);
+  --ax-danger: #f97066;
+  --ax-danger-soft: rgba(249, 112, 102, 0.14);
+  --ax-warn: #fdb022;
+  --ax-warn-soft: rgba(253, 176, 34, 0.14);
+  --ax-info: #67b3ff;
+
+  --ax-bg: #0d0f16;
+  --ax-surface: #151824;
+  --ax-surface-2: #1b1f2e;
+  --ax-surface-3: #232838;
+  --ax-text: #eef1f8;
+  --ax-text-muted: #a2aac0;
+  --ax-text-faint: #7c8499;
+  --ax-border: #262c3d;
+  --ax-border-strong: #38405a;
+
+  --ax-code-bg: #0a0c14;
+  --ax-code-text: #e8ecf6;
+  --ax-code-muted: #8f98b3;
+
+  --ax-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --ax-shadow-2: 0 6px 18px rgba(0, 0, 0, 0.45);
+  --ax-shadow-3: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- базовые элементы ---------- */
+
+.ax-ui,
+.ax-scope {
+  font-family: var(--ax-font);
+  font-size: var(--ax-fs-md);
+  line-height: 1.5;
+  color: var(--ax-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.ax-ui *,
+.ax-scope * {
+  box-sizing: border-box;
+}
+
+/* Кнопки: три уровня (основная, обычная, тихая) + опасная */
+.ax-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ax-s-2);
+  padding: 7px 12px;
+  border: 1px solid var(--ax-border-strong);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface);
+  color: var(--ax-text);
+  font: inherit;
+  font-size: var(--ax-fs-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ax-dur) var(--ax-ease), border-color var(--ax-dur) var(--ax-ease),
+    color var(--ax-dur) var(--ax-ease), box-shadow var(--ax-dur) var(--ax-ease), transform var(--ax-dur) var(--ax-ease);
+}
+
+.ax-btn:hover { background: var(--ax-surface-2); border-color: var(--ax-border-strong); }
+
+.ax-btn:active { transform: translateY(1px); }
+
+.ax-btn:focus-visible {
+  outline: 2px solid var(--ax-accent);
+  outline-offset: 2px;
+}
+
+.ax-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ax-btn-icon {
+  padding: 7px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ax-text-muted);
+}
+
+.ax-btn-icon:hover { background: var(--ax-surface-2); color: var(--ax-text); }
+
+.ax-btn-run {
+  background: linear-gradient(180deg, var(--ax-accent), var(--ax-accent-strong));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--ax-shadow-1);
+}
+
+.ax-btn-run:hover { filter: brightness(1.06); background: linear-gradient(180deg, var(--ax-accent), var(--ax-accent-strong)); }
+
+.ax-btn-run:disabled { filter: grayscale(0.2); }
+
+.ax-btn-insert {
+  background: var(--ax-accent-soft);
+  border-color: transparent;
+  color: var(--ax-accent-strong);
+}
+
+.ax-btn-insert:hover { background: var(--ax-accent-soft); border-color: var(--ax-accent-ring); }
+
+.ax-btn-cancel { background: var(--ax-surface-2); border-color: var(--ax-border); color: var(--ax-text); }
+
+.ax-btn-confirm { background: var(--ax-danger); border-color: transparent; color: #fff; }
+.ax-btn-confirm:hover { filter: brightness(1.05); background: var(--ax-danger); }
+.ax-btn-confirm.safe { background: var(--ax-success); }
+
+/* Поля ввода */
+.ax-input,
+.ax-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--ax-border-strong);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface);
+  color: var(--ax-text);
+  font: inherit;
+  font-size: var(--ax-fs-md);
+  transition: border-color var(--ax-dur) var(--ax-ease), box-shadow var(--ax-dur) var(--ax-ease);
+}
+
+.ax-input:focus,
+.ax-select:focus {
+  outline: none;
+  border-color: var(--ax-accent);
+  box-shadow: 0 0 0 3px var(--ax-accent-ring);
+}
+
+.ax-input::placeholder { color: var(--ax-text-faint); }
+
+/* Плашки-статусы */
+.ax-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--ax-r-pill);
+  font-size: var(--ax-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--ax-surface-2);
+  color: var(--ax-text-muted);
+}
+
+.ax-chip-ok { background: var(--ax-success-soft); color: var(--ax-success); }
+.ax-chip-warn { background: var(--ax-warn-soft); color: var(--ax-warn); }
+.ax-chip-danger { background: var(--ax-danger-soft); color: var(--ax-danger); }
+.ax-chip-accent { background: var(--ax-accent-soft); color: var(--ax-accent-strong); }
+
+/* Врезка-предупреждение (экспериментальные функции) */
+.ax-warn-box {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ax-warn-soft);
+  border-left: 3px solid var(--ax-warn);
+  border-radius: var(--ax-r-sm, 6px);
+  background: var(--ax-warn-soft);
+  color: var(--ax-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.ax-warn-box code {
+  background: var(--ax-surface-2);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+/* Подблок внутри карточки (раздел «Экспериментальное») */
+.ax-sub {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ax-border);
+}
+.ax-sub:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.ax-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ax-sub-title {
+  font-weight: 650;
+  font-size: 13.5px;
+  color: var(--ax-text);
+}
+
+/* Строка статуса MCP-сервера */
+.ax-mcp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ax-border);
+  font-size: 12.5px;
+}
+.ax-mcp-row:last-child { border-bottom: none; }
+.ax-mcp-name { font-weight: 600; }
+.ax-mcp-cmd { color: var(--ax-text-muted); font-family: var(--ax-mono, monospace); }
+.ax-mcp-err { color: var(--ax-danger); }
+
+/* Иконки */
+.ax-ico {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  display: inline-block;
+  vertical-align: -0.14em;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ax-btn, .ax-input, .ax-select { transition: none; }
+}
+
+/* Авто-тёмная тема для страниц настроек и попапа (когда data-ax-theme не задан) */
+@media (prefers-color-scheme: dark) {
+  html:not([data-ax-theme="light"]) .ax-ui-auto {
+    color-scheme: dark;
+    --ax-accent: #8b8bf5;
+    --ax-accent-strong: #a3a3ff;
+    --ax-accent-soft: rgba(139, 139, 245, 0.16);
+    --ax-accent-ring: rgba(139, 139, 245, 0.4);
+    --ax-success: #34d399;
+    --ax-success-soft: rgba(52, 211, 153, 0.14);
+    --ax-danger: #f97066;
+    --ax-danger-soft: rgba(249, 112, 102, 0.14);
+    --ax-warn: #fdb022;
+    --ax-warn-soft: rgba(253, 176, 34, 0.14);
+    --ax-bg: #0d0f16;
+    --ax-surface: #151824;
+    --ax-surface-2: #1b1f2e;
+    --ax-surface-3: #232838;
+    --ax-text: #eef1f8;
+    --ax-text-muted: #a2aac0;
+    --ax-text-faint: #7c8499;
+    --ax-border: #262c3d;
+    --ax-border-strong: #38405a;
+    --ax-code-bg: #0a0c14;
+    --ax-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --ax-shadow-2: 0 6px 18px rgba(0, 0, 0, 0.45);
+    --ax-shadow-3: 0 24px 60px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Внутри shadow root тема приходит классом-обёрткой */
+.ax-shadow-content {
+  font-family: var(--ax-font);
+  color: var(--ax-text);
+  font-size: var(--ax-fs-md);
+  line-height: 1.5;
+}

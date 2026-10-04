@@ -41,6 +41,9 @@
     soundOnComplete: false,
     browserNotify: false,
     echoMode: 'short',
+    previewLines: 12,
+    paletteEnabled: true,
+    noisyCollapse: true,
   };
   AX.settings = { ...AX.DEFAULTS };
 
@@ -453,6 +456,32 @@
     return () => clearInterval(iv);
   };
 
+  // --- шумный вывод (листинги) ---------------------------------------------
+  /**
+   * Определяет, похож ли вывод на «простыню» — установку пакетов, листинг
+   * дерева файлов, лог сборки. Такой вывод растягивает чат на экраны, при этом
+   * почти всегда нужен только хвост. Сворачиваем его, оставляя раскрытие.
+   * @returns {{noisy: boolean, lines: number, total: number}}
+   */
+  AX.isNoisyOutput = function (text) {
+    const s = String(text == null ? '' : text);
+    if (!s) return { noisy: false, lines: 0, total: 0 };
+    const lines = s.split('\n');
+    const total = lines.length;
+    if (total < 40) return { noisy: false, lines: total, total };
+    // Длинные «умные» строки (код, JSON, таблицы) полезны целиком — не трогаем.
+    // А вот много коротких однотипных строк — это листинг.
+    let short = 0;
+    let chars = 0;
+    for (const line of lines) {
+      chars += line.length;
+      if (line.length <= 110) short++;
+    }
+    const avg = chars / Math.max(1, total);
+    const monotone = short / total >= 0.85 && avg <= 95;
+    return { noisy: monotone, lines: total, total };
+  };
+
   // --- история выполнения (переживает F5) ---
   const EXEC_HIST_KEY = 'axExecutedHistory';
   AX.execHistory = new Map();
@@ -487,6 +516,131 @@
     return Math.round(sec / 86400) + 'д';
   };
   AX.EXEC_HIST_KEY = EXEC_HIST_KEY;
+
+  // --- журнал команд (для палитры) и закреплённые ---------------------------
+  // Отдельно от execHistory: там ключи для дедупа («выполнялось ли уже»), а тут
+  // упорядоченный список последних запусков с средой и кодом возврата — из него
+  // собирается палитра команд (Ctrl+Shift+E).
+  const CMD_LOG_KEY = 'axCommandLog';
+  const PINNED_KEY = 'axPinnedCommands';
+  const CMD_LOG_MAX = 30;
+  AX.cmdLog = [];
+  AX.pinned = [];
+
+  function normalizeCmd(cmd) { return String(cmd == null ? '' : cmd).trim().replace(/\s+/g, ' '); }
+
+  /* Маскирование секретов перед записью в журнал. Свой токен сервера знает
+   * только расширение, поэтому подставляем его в список точных значений. */
+  AX.redactSecrets = function (text) {
+    try {
+      const token = (AX.settings && AX.settings.authToken) || '';
+      return D.redactSecrets(text, [token]);
+    } catch (e) {
+      return String(text == null ? '' : text);
+    }
+  };
+
+  AX.logCommand = function (cmd, runner, exitCode, status) {
+    const raw = String(cmd == null ? '' : cmd);
+    if (!raw.trim()) return;
+    const key = normalizeCmd(raw).slice(0, 400);
+    // Один и тот же текст не дублируем — поднимаем существующую запись наверх
+    // и обновляем её поля (свежий запуск важнее старого).
+    for (let i = AX.cmdLog.length - 1; i >= 0; i--) {
+      if (normalizeCmd(AX.cmdLog[i].cmd).slice(0, 400) === key) AX.cmdLog.splice(i, 1);
+    }
+    // В журнал попадает уже замаскированная команда: секрет не должен пережить
+    // ни перезагрузку страницы, ни экспорт в .md. Отличать такие записи будем
+    // по флагу secret — палитра покажет подсказку, что значение надо ввести
+    // заново (см. ax-palette.js).
+    const safe = AX.redactSecrets(raw);
+    AX.cmdLog.unshift({
+      cmd: safe.slice(0, 4000),
+      secret: safe !== raw,
+      runner: D.runnerValid(runner) || 'shell',
+      t: Date.now(),
+      exit: (typeof exitCode === 'number') ? exitCode : null,
+      status: typeof status === 'string' ? status.slice(0, 24) : 'done',
+    });
+    while (AX.cmdLog.length > CMD_LOG_MAX) AX.cmdLog.pop();
+    AX.saveCmdLog();
+  };
+
+  AX.saveCmdLog = function () {
+    try {
+      const b = typeof browser !== 'undefined' ? browser : chrome;
+      b.storage.local.set({ [CMD_LOG_KEY]: AX.cmdLog.slice(0, CMD_LOG_MAX) });
+    } catch (e) { /* ignore */ }
+  };
+
+  AX.loadCmdLog = function (list) {
+    AX.cmdLog = Array.isArray(list) ? list.filter((e) => e && typeof e.cmd === 'string').slice(0, CMD_LOG_MAX) : [];
+  };
+
+  AX.clearCmdLog = function () {
+    AX.cmdLog = [];
+    AX.saveCmdLog();
+  };
+
+  AX.isPinned = function (cmd) {
+    const key = normalizeCmd(cmd).slice(0, 400);
+    return AX.pinned.some((p) => normalizeCmd(p.cmd).slice(0, 400) === key);
+  };
+
+  AX.togglePin = function (cmd, runner) {
+    const text = String(cmd == null ? '' : cmd);
+    if (!text.trim()) return false;
+    const key = normalizeCmd(text).slice(0, 400);
+    const ix = AX.pinned.findIndex((p) => normalizeCmd(p.cmd).slice(0, 400) === key);
+    if (ix >= 0) {
+      AX.pinned.splice(ix, 1);
+      AX.savePinned();
+      return false;
+    }
+    AX.pinned.unshift({
+      cmd: AX.redactSecrets(text).slice(0, 4000),
+      runner: D.runnerValid(runner) || 'shell',
+      t: Date.now(),
+    });
+    while (AX.pinned.length > 20) AX.pinned.pop();
+    AX.savePinned();
+    return true;
+  };
+
+  AX.savePinned = function () {
+    try {
+      const b = typeof browser !== 'undefined' ? browser : chrome;
+      // Синхронизируем между устройствами: это пользовательские сниппеты,
+      // секретов в них быть не должно.
+      b.storage.sync.set({ [PINNED_KEY]: AX.pinned.slice(0, 20) });
+    } catch (e) { /* ignore */ }
+  };
+
+  AX.loadPinned = function (list) {
+    AX.pinned = Array.isArray(list) ? list.filter((e) => e && typeof e.cmd === 'string').slice(0, 20) : [];
+  };
+
+  // Единый список для палитры: закреплённые сверху, затем история.
+  AX.paletteItems = function () {
+    const out = [];
+    const seen = new Set();
+    for (const p of AX.pinned) {
+      const key = normalizeCmd(p.cmd).slice(0, 400);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ cmd: p.cmd, runner: D.runnerValid(p.runner) || 'shell', t: p.t || 0, pinned: true, exit: null, status: '', secret: D.redactSecrets(p.cmd) !== p.cmd });
+    }
+    for (const e of AX.cmdLog) {
+      const key = normalizeCmd(e.cmd).slice(0, 400);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ cmd: e.cmd, runner: D.runnerValid(e.runner) || 'shell', t: e.t || 0, pinned: false, exit: e.exit, status: e.status || '', secret: !!e.secret });
+    }
+    return out;
+  };
+
+  AX.CMD_LOG_KEY = CMD_LOG_KEY;
+  AX.PINNED_KEY = PINNED_KEY;
 
   // --- память выбора среды (начало текста -> runner) ---
   const RUNNER_MEM_KEY = 'axRunnerMemory';
@@ -533,6 +687,15 @@
       const pr2 = b.storage.local.get([RUNNER_MEM_KEY]);
       if (pr2 && pr2.then) pr2.then(onMem);
       else chrome.storage.local.get([RUNNER_MEM_KEY], onMem);
+      // Журнал команд — локально, закреплённые — в sync (пользовательские сниппеты)
+      const onLog = (d) => AX.loadCmdLog(d && d[CMD_LOG_KEY]);
+      const pr3 = b.storage.local.get([CMD_LOG_KEY]);
+      if (pr3 && pr3.then) pr3.then(onLog);
+      else chrome.storage.local.get([CMD_LOG_KEY], onLog);
+      const onPinned = (d) => AX.loadPinned(d && d[PINNED_KEY]);
+      const pr4 = b.storage.sync.get([PINNED_KEY]);
+      if (pr4 && pr4.then) pr4.then(onPinned);
+      else chrome.storage.sync.get([PINNED_KEY], onPinned);
     } catch (e) { /* ignore */ }
   };
 
@@ -548,9 +711,11 @@
       (typeof browser !== 'undefined' ? browser : chrome).storage.onChanged.addListener((changes, area) => {
         if (area === 'local') {
           if (changes[EXEC_HIST_KEY]) AX.loadExecHistory(changes[EXEC_HIST_KEY].newValue);
+          if (changes[CMD_LOG_KEY]) AX.loadCmdLog(changes[CMD_LOG_KEY].newValue);
           return;
         }
         if (area !== 'sync') return;
+        if (changes[PINNED_KEY]) AX.loadPinned(changes[PINNED_KEY].newValue);
         for (const [k, v] of Object.entries(changes)) AX.settings[k] = v.newValue;
         if (changes.autoExecute && changes.autoExecute.newValue === true) {
           AX.loopBlocked = false;
@@ -612,16 +777,35 @@
   };
 
   // --- реакция на сеттлы ---
+  /* Токены (цвета, отступы, радиусы, тени, шрифты) живут только в ax-ui.css
+     и применяются к хостам через селектор :host — так внутри shadow root
+     работают ВСЕ переменные, а не только цвета.
+     Раньше здесь был дубликат цветов (PANEL_THEME_VARS): он со временем
+     разошёлся с CSS, из-за чего отступы и тени в модалке и палитре были
+     не заданы и карточки теряли padding/радиус/тень. Дубликат удалён —
+     при расхождении теперь правьте только ax-ui.css. */
   AX.applyPanelAppearance = function (panel) {
     try {
       const size = AX.settings.panelSize || 'normal';
       panel.classList.remove('ax-size-compact', 'ax-size-large');
       if (size === 'compact') panel.classList.add('ax-size-compact');
       else if (size === 'large') panel.classList.add('ax-size-large');
+
       const theme = AX.settings.uiTheme || 'auto';
       panel.classList.remove('ax-theme-light', 'ax-theme-dark');
-      if (theme === 'light') panel.classList.add('ax-theme-light');
-      else if (theme === 'dark') panel.classList.add('ax-theme-dark');
+      let effective = theme;
+      if (theme === 'auto') {
+        let dark = false;
+        try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { /* ignore */ }
+        effective = dark ? 'dark' : 'light';
+      }
+      if (theme !== 'auto') panel.classList.add(theme === 'dark' ? 'ax-theme-dark' : 'ax-theme-light');
+      panel.classList.toggle('ax-dark', effective === 'dark');
+      // Атрибут на хосте выбирает блок :host([data-ax-theme="dark"]).
+      panel.setAttribute('data-ax-theme', effective);
+      // .ax-dark-scope — запасной путь для содержимого тени.
+      const scope = panel.innerContent;
+      if (scope) scope.classList.toggle('ax-dark-scope', effective === 'dark');
     } catch (e) { /* ignore */ }
   };
 

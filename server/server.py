@@ -23,17 +23,102 @@ import sys
 import tempfile
 import threading
 import time
+# mcp_client лежит рядом, но server.py бывает запущен из другой папки (ярлык,
+# автозапуск) — поэтому добавляем свою папку в sys.path перед импортом.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mcp_client as _mcp  # noqa: E402
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.6.0'
+VERSION = '2.7.0'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
 LOG_FILE = None  # путь к файлу логов (None = только консоль)
 RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
 WHITELIST = None  # None = выключен; frozenset префиксов (lowercase) = включён
-_WHITELIST_META = re.compile(r'[;&|<>`]|\$\(')  # shell-метасимволы
+
+# --- MCP (экспериментально) --------------------------------------------------
+
+def _stdin_is_tty():
+    """True только для настоящего интерактивного терминала.
+
+    Зачем: сервер часто стартует из ярлыка, автозагрузки или CI, где stdin —
+    перенаправленный поток. Там input() либо блокирует навсегда, либо падает,
+    поэтому в таких случаях вопрос про MCP задавать нельзя."""
+    try:
+        return bool(sys.stdin) and bool(sys.stdin.isatty())
+    except Exception:
+        return False
+
+
+def _say(text):
+    """print, который не падает на однобайтовой консоли (cp866/cp1251).
+
+    main() перенастраивает stdout, но _prompt_mcp вызывается и тестами, и из
+    других мест: падать из-за «красивых» букв пользователю нельзя."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, 'encoding', None) or 'ascii'
+        print(text.encode(enc, 'replace').decode(enc, 'replace'))
+
+
+def _prompt_mcp(cfg):
+    """Спрашивает, включать ли MCP. Возвращает True/False.
+
+    Конфиг намеренно НЕ переписывается: выбор влияет только на текущий запуск.
+    Иначе сервер, запущенный из ярлыка с ответом по умолчанию, молча включил бы
+    экспериментальные возможности в файле пользователя."""
+    if not _stdin_is_tty():
+        return False
+    _say('')
+    _say('  MCP [экспериментально] — внешние MCP-серверы (Godot, Blender и др.)')
+    _say(f'  конфиг: {cfg}')
+    try:
+        servers = _mcp.load_config(cfg)
+    except _mcp.McpError as e:
+        _say(f'  [!] {e}')
+        return False
+    if not servers:
+        _say('  В конфиге нет ни одного MCP-сервера — включать нечего.')
+        _say('  Описание серверов: server/mcp_servers.json')
+        return False
+    active = sorted(c.name for c in servers if c.enabled)
+    if active:
+        _say('  Активные серверы: ' + ', '.join(active))
+    else:
+        _say('  Активных серверов нет: в конфиге у всех enabled: false.')
+        _say('  Включить нужные можно в server/mcp_servers.json')
+    _say('  Подробности: настройки расширения → раздел «Экспериментальное»')
+    try:
+        ans = _ask('  Включить MCP? [y/N] ').strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        _say('')
+        return False
+    except Exception:
+        # Обрыв сокета, закрытый stdin и прочее: сервер обязан стартовать,
+        # а не падать из-за вопроса, который не влез в экран.
+        return False
+    return ans in ('y', 'yes', 'д', 'да', '1')
+
+
+def _ask(prompt):
+    """input(), который тоже не падает на однобайтовой консоли."""
+    try:
+        return input(prompt)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, 'encoding', None) or 'ascii'
+        return input(prompt.encode(enc, 'replace').decode(enc, 'replace'))
+# Браузер не умеет запускать процессы, поэтому внешние MCP-серверы (Godot,
+# Blender и др.) поднимает сам server.py и говорит с ними по stdio.
+# Пока выключено: MCP_REGISTRY is None → эндпоинты отвечают «выключено».
+MCP_REGISTRY = None
+MCP_CONFIG = None
+# Shell-метасимволы. Перевод строки здесь обязателен: многострочный текст уходит
+# в .cmd-файл и выполняется построчно, поэтому `cd .\nrm -rf /` раньше проходил
+# проверку как «команда с разрешённым префиксом cd».
+_WHITELIST_META = re.compile(r'[;&|<>`]|\$\(|[\r\n]')
 
 # Unicode-пробелы, которые чаты вставляют в code-блоки через &nbsp; и родственники.
 # NBSP (U+00A0) — самый частый: Python падает с "SyntaxError: invalid non-printable
@@ -310,7 +395,8 @@ def _check_whitelist(cmd):
     if not c:
         return False, 'empty command'
     if _WHITELIST_META.search(c):
-        return False, 'shell metacharacters (; & | < > ` $() not allowed in whitelist mode'
+        return False, ('shell metacharacters (; & | < > ` $( and line breaks) '
+                       'not allowed in whitelist mode')
     cl = c.lower()
     for prefix in WHITELIST:
         if cl == prefix or cl.startswith(prefix + ' '):
@@ -400,14 +486,15 @@ def execute(payload):
     # Нормализуем Unicode-пробелы (NBSP из code-блоков чатов) ДО всех проверок:
     # иначе whitelist и danger-patterns не срабатывают, а python падает с SyntaxError.
     command = normalize_whitespace(command)
-    # view: спец-команда просмотра изображения (до whitelist)
-    if command.lower().startswith("view "):
-        return _handle_view(command[5:])
-    # whitelist: блокируем неразрешённые команды (если включён)
+    # whitelist: блокируем неразрешённые команды (если включён) ДО спец-команд,
+    # иначе `view` читал бы файлы с диска в обход политики whitelist.
     ok_wl, wl_reason = _check_whitelist(command)
     if not ok_wl:
         return {'ok': False, 'executed': False, 'blocked': True,
                 'error': f'whitelist: {wl_reason}', 'command': command}
+    # view: спец-команда просмотра изображения
+    if command.lower().startswith("view "):
+        return _handle_view(command[5:])
     runner = str(payload.get('runner') or 'shell').strip().lower()
     timeout = payload.get('timeout') or DEFAULT_TIMEOUT
     cwd_raw = str(payload.get('cwd') or '').strip()
@@ -498,6 +585,7 @@ class Handler(BaseHTTPRequestHandler):
         # Защита от DNS-rebinding и чужих сайтов:
         # Host обязан быть локальным, Origin — пустым (curl/навигация),
         # chrome-extension:// (наше расширение) или локальным.
+        self._cors_origin = 'null'  # per-request; атрибут класса здесь не годится
         host = (self.headers.get('Host') or '').split(':')[0].strip().lower()
         if host not in ('127.0.0.1', 'localhost', '[::1]', '::1'):
             return False
@@ -507,8 +595,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             o = urlparse(origin)
             if o.scheme in ('chrome-extension', 'moz-extension'):
+                self._cors_origin = origin
                 return True
             if o.hostname in ('127.0.0.1', 'localhost'):
+                self._cors_origin = origin
                 return True
         except Exception:
             return False
@@ -522,7 +612,10 @@ class Handler(BaseHTTPRequestHandler):
         return hmac.compare_digest(got, AUTH_TOKEN)
 
     def _cors(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        # Никакого `*`: Origin-проверка выше и так отсекает чужие сайты, но
+        # wildcard превратился бы в дыру, если её когда-нибудь ослабят.
+        self.send_header('Access-Control-Allow-Origin', getattr(self, '_cors_origin', 'null'))
+        self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Token')
 
@@ -547,8 +640,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
-        req_path = urlparse(self.path).path
-        if req_path.rstrip('/') in ('/ping', ''):
+        req_path = urlparse(self.path).path.rstrip('/') or '/'
+        if req_path == '/mcp/servers':
+            if not self._check_token():
+                return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
+            if MCP_REGISTRY is None:
+                return self._json({'ok': True, 'enabled': False, 'servers': [], 'tools': 0,
+                                   'config': MCP_CONFIG or '', 'hint': 'запустите сервер с --mcp'})
+            return self._json({'ok': True, 'enabled': True, 'servers': MCP_REGISTRY.describe(),
+                               'tools': 0, 'config': MCP_REGISTRY.config_path,
+                               'config_error': MCP_REGISTRY.load_error})
+        if req_path in ('/ping', '/'):
             self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
                         'cwd': os.getcwd(), 'python': sys.version.split()[0],
                         'auth_required': bool(AUTH_TOKEN),
@@ -562,7 +664,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._allowed():
             return self._json({'ok': False, 'error': 'forbidden: bad Host/Origin'}, 403)
-        if urlparse(self.path).path.rstrip('/') != '/run':
+        req_path = urlparse(self.path).path.rstrip('/') or '/'
+        if req_path in ('/mcp/tools', '/mcp/call', '/mcp/reload'):
+            return self._mcp_post(req_path)
+        if req_path != '/run':
             return self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
         if not self._check_token():
             return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
@@ -596,6 +701,74 @@ class Handler(BaseHTTPRequestHandler):
         result = execute(payload)
         self._json(result, 200 if result.get('ok') else 400)
 
+    # ---------- MCP (экспериментально) ----------
+    def _mcp_body(self):
+        """Читает и валидирует JSON-тело. Возвращает (dict, None) или (None, ответ)."""
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            length = 0
+        if length < 0:
+            length = 0
+        if length > 1_000_000:
+            return None, self._json({'ok': False, 'error': 'body too large (max 1MB)'}, 413)
+        try:
+            raw = self.rfile.read(length) if length else b'{}'
+        except (TimeoutError, OSError):
+            return None, self._json({'ok': False, 'error': 'read timeout'}, 408)
+        try:
+            payload = json.loads(raw.decode('utf-8') or '{}')
+        except (ValueError, UnicodeDecodeError):
+            return None, self._json({'ok': False, 'error': 'invalid JSON'}, 400)
+        if not isinstance(payload, dict):
+            return None, self._json({'ok': False, 'error': 'JSON body must be an object'}, 400)
+        return payload, None
+
+    def _mcp_post(self, req_path):
+        if not self._check_token():
+            return self._json({'ok': False, 'error': 'invalid or missing token (X-Auth-Token)'}, 401)
+        if MCP_REGISTRY is None:
+            return self._json({'ok': False, 'error': 'MCP выключен: запустите сервер с флагом --mcp'}, 400)
+
+        payload, err = self._mcp_body()
+        if err is not None:
+            return err
+
+        if req_path == '/mcp/reload':
+            MCP_REGISTRY.reload()
+            return self._json({'ok': True, 'servers': MCP_REGISTRY.describe(),
+                               'config': MCP_REGISTRY.config_path,
+                               'config_error': MCP_REGISTRY.load_error})
+
+        if req_path == '/mcp/tools':
+            try:
+                tools = MCP_REGISTRY.collect_tools()
+            except _mcp.McpError as e:
+                return self._json({'ok': False, 'error': str(e)}, 400)
+            return self._json({'ok': True, 'tools': tools, 'count': len(tools),
+                               'servers': MCP_REGISTRY.describe()})
+
+        # /mcp/call
+        server = str(payload.get('server') or '').strip()
+        tool = str(payload.get('tool') or payload.get('name') or '').strip()
+        arguments = payload.get('arguments')
+        if not server or not tool:
+            return self._json({'ok': False, 'error': 'нужны поля server и tool'}, 400)
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            return self._json({'ok': False, 'error': 'arguments должен быть объектом'}, 400)
+        timeout = payload.get('timeout')
+        try:
+            timeout = float(timeout) if timeout else None
+        except (TypeError, ValueError):
+            timeout = None
+        try:
+            result = MCP_REGISTRY.call(server, tool, arguments, timeout)
+        except _mcp.McpError as e:
+            return self._json({'ok': False, 'error': str(e), 'server': server, 'tool': tool}, 400)
+        return self._json({'ok': True, 'server': server, 'tool': tool, 'result': result})
+
     def log_message(self, fmt, *args):
         # Расширение дёргает /ping каждые ~30 сек для зелёного бейджа —
         # по умолчанию такие проверки НЕ логируем, чтобы не спамить консоль.
@@ -616,6 +789,18 @@ class QuietServer(ThreadingHTTPServer):
         if isinstance(ex, (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
             return
         super().handle_error(request, client_address)
+
+
+def _setup_payload(port, token):
+    """Готовит base64url-полезную нагрузку для ссылки настройки в один клик.
+
+    Расширение разбирает её в options.js (#ax-setup=…) и само подставляет адрес
+    сервера и токен — это убирает самую частую ошибку первого запуска
+    («бейдж offline» и 401 из-за незаполненного токена).
+    """
+    payload = json.dumps({'url': f'http://127.0.0.1:{port}', 'token': token},
+                         ensure_ascii=False).encode('utf-8')
+    return base64.urlsafe_b64encode(payload).decode('ascii').rstrip('=')
 
 
 def main():
@@ -645,15 +830,29 @@ def main():
                     help='макс. команд в минуту (0 = без лимита)')
     ap.add_argument('--whitelist', default=None, metavar='FILE',
                     help='файл со списком разрешённых команд (включает whitelist-режим)')
+    ap.add_argument('--mcp', action='store_true',
+                    help='[экспериментально] включить MCP без вопроса')
+    ap.add_argument('--no-mcp', action='store_true',
+                    help='[экспериментально] не задавать вопрос про MCP и не включать его')
+    ap.add_argument('--yes', action='store_true',
+                    help='отвечать «да» на интерактивные вопросы (для скриптов и ярлыков)')
+    ap.add_argument('--mcp-config', default=None, metavar='FILE',
+                    help='конфиг MCP-серверов (по умолчанию server/mcp_servers.json)')
     args = ap.parse_args()
     VERBOSE = args.verbose
     MAX_OUTPUT = args.max_output if args.max_output >= 0 else 1_000_000
     global AUTH_TOKEN
     if args.no_token:
         AUTH_TOKEN = None
-    elif args.token:
+    elif args.token and args.token.strip():
         AUTH_TOKEN = args.token.strip()
     else:
+        # Пустая строка в --token не должна ТИХО отключать аутентификацию: это
+        # выглядело бы как «токен задан», а сервер оставался бы открытым.
+        # Явное отключение — только флаг --no-token.
+        if args.token is not None:
+            print('  [!] --token пустой — отключение только через --no-token; '
+                  'генерирую случайный токен')
         AUTH_TOKEN = secrets.token_urlsafe(24)
     global LOG_FILE, RATE_LIMIT
     LOG_FILE = args.log.strip() if args.log else None
@@ -665,6 +864,31 @@ def main():
         except (OSError, RuntimeError) as e:
             print(f'ошибка: не могу прочитать whitelist: {e}')
             sys.exit(1)
+    # --- MCP: приоритет флагов, иначе интерактивный выбор (экспериментально) ---
+    global MCP_REGISTRY, MCP_CONFIG
+    _mcp_cfg = args.mcp_config or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                              'mcp_servers.json')
+    _mcp_cfg = os.path.expanduser(_mcp_cfg)
+    if args.mcp:
+        want_mcp = True          # попросили явно
+    elif args.no_mcp:
+        want_mcp = False         # попросили не спрашивать
+    elif args.yes:
+        want_mcp = True          # неинтерактивный запуск: согласие подразумевается флагом
+    else:
+        want_mcp = _prompt_mcp(_mcp_cfg)
+    if want_mcp:
+        MCP_CONFIG = _mcp_cfg
+        MCP_REGISTRY = _mcp.Registry(_mcp_cfg)
+        if MCP_REGISTRY.load_error:
+            print(f'  [!] MCP: {MCP_REGISTRY.load_error}')
+        enabled = [c for c in MCP_REGISTRY.clients.values() if c.enabled]
+        if enabled:
+            _log(f'  MCP [экспериментально]: {len(enabled)} сервер(ов) — '
+                 + ', '.join(sorted(c.name for c in enabled)))
+            _log(f'  конфиг MCP: {_mcp_cfg}')
+        else:
+            _log(f'  MCP [экспериментально]: включён, но активных серверов нет ({_mcp_cfg})')
     # Стартовый cwd: запуск из системной папки (System32 через ярлык/автозапуск)
     # ломает все относительные пути — в этом случае уходим в домашнюю папку.
     if args.cwd:
@@ -693,6 +917,12 @@ def main():
         # В консоль печатаем всегда (пользователю надо его увидеть и скопировать).
         print(f'  Токен доступа: {AUTH_TOKEN}')
         print('  Скопируйте его в настройки расширения (поле Токен)')
+        _log('  ---- настройка в один клик ----')
+        _log('  Откройте страницу настроек расширения и вставьте ссылку ниже в адресную')
+        _log('  строку браузера — адрес и токен подставятся сами:')
+        for scheme in ('chrome-extension', 'moz-extension'):
+            print(f'  {scheme}://<ID расширения>/options.html#ax-setup={_setup_payload(args.port, AUTH_TOKEN)}')
+        _log('  <ID расширения>: chrome://extensions (Chrome) или about:debugging (Firefox)')
         if LOG_FILE:
             _log('  Токен доступа: <скрыт> (см. консоль; в файл лога не пишется)')
     else:
@@ -707,6 +937,14 @@ def main():
         srv.serve_forever()
     except KeyboardInterrupt:
         print('\nbye!')
+    finally:
+        # MCP-серверы — это subprocess'ы; без явного terminate они остались бы
+        # висеть после Ctrl+C и держать Blender/Godot заблокированными.
+        if MCP_REGISTRY is not None:
+            try:
+                MCP_REGISTRY.shutdown()
+            except Exception:
+                pass
 
 if __name__ == '__main__':
     main()

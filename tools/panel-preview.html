@@ -1,0 +1,435 @@
+﻿<!doctype html>
+<html lang="ru" data-ax-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Панель под execute-блоком — превью</title>
+<style>
+  /* Полигон для визуальной проверки панели: имитирует страницу чата.
+     Стили расширения подключаются как обычные <link> и копируются внутрь
+     shadow root (в боевом режиме это делает AX.shadowCssImport через @import). */
+  body {
+    margin: 0; padding: 28px;
+    background: #f6f7fb; color: #171a21;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .chat { max-width: 820px; margin: 0 auto; }
+  .msg-user {
+    display: inline-block; margin-left: auto; padding: 10px 14px;
+    background: #5b5bd6; color: #fff; border-radius: 14px 14px 4px 14px;
+    margin-bottom: 18px;
+  }
+  .msg-ai { display: flex; gap: 12px; margin-bottom: 6px; }
+  .avatar {
+    width: 30px; height: 30px; flex: 0 0 auto; border-radius: 50%;
+    background: linear-gradient(140deg, #5b5bd6, #4a48c4);
+  }
+  pre.code {
+    margin: 0; padding: 14px 16px;
+    background: #0f1220; color: #e8ecf6;
+    border-radius: 12px; font-size: 13px;
+    font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    overflow: auto;
+  }
+  .demo-note {
+    margin: 26px 0 10px; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #868da0;
+  }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+  h1 { font-size: 18px; margin: 0 0 18px; letter-spacing: -0.01em; }
+</style>
+<!-- ax-ui.css НЕ подключаем как <link> намеренно: в бою он попадает внутрь
+     shadow root через @import, где селектор :root не срабатывает, и токены
+     приходят только с хоста, которому их задал AX.applyPanelAppearance.
+     Подключение к документу унаследовало бы токены в хосты и замаскировало
+     баг «модалка без токенов → background: var(--ax-surface) = none».
+     Правила подставляются в тень скриптом ниже, токены приходят как в бою. -->
+<link rel="stylesheet" href="content.css">
+</head>
+<body>
+<div class="chat">
+  <h1>Превью панели и диалогов</h1>
+
+  <div class="msg-user">Собери проект и покажи, что в папке dist</div>
+  <div class="msg-ai">
+    <div class="avatar"></div>
+    <div style="flex:1 1 auto; min-width:0">
+      <div>Готово, вот команда — она соберёт релиз и покажет содержимое папки.</div>
+      <pre class="code">npm run build
+ls -la dist</pre>
+      <div id="slot-ok"></div>
+    </div>
+  </div>
+
+  <div class="msg-ai">
+    <div class="avatar"></div>
+    <div style="flex:1 1 auto; min-width:0">
+      <div>Многострочный скрипт: предпросмотр показывает первую строку и подсказку, а вывод — в тёмном блоке.</div>
+      <pre class="code">python - &lt;&lt;'PY'
+import os
+print(os.getcwd())
+PY</pre>
+      <div id="slot-multi"></div>
+    </div>
+  </div>
+
+  <div class="demo-note">Слабая находка (EXECUTE?) + длинный вывод</div>
+  <div id="slot-weak"></div>
+
+  <div class="demo-note">Блок в процессе выполнения</div>
+  <div id="slot-running"></div>
+
+  <div class="demo-note">Ошибка выполнения</div>
+  <div id="slot-error"></div>
+
+  <div class="demo-note">Превью картинки (команда view)</div>
+  <div id="slot-view"></div>
+
+  <div class="demo-note">Сворачивание шумного вывода (npm install с длинным листингом)</div>
+  <div id="slot-noisy"></div>
+</div>
+
+<script src="ax-detector.js"></script>
+<script>
+// Любая ошибка на полигоне должна быть видна на скриншоте, иначе страница
+// выглядит «просто пустой» и непонятно, что чинить.
+window.__axErr = [];
+// Точки, где страница могла уехать вниз: в реальном чате это тоже заметно —
+// Ctrl+Shift+E не должен прокручивать ленту сообщений.
+function axScrollMark(label) {
+  var se = document.scrollingElement || document.documentElement;
+  window.__axScroll = window.__axScroll || [];
+  window.__axScroll.push(label + ' -> top=' + se.scrollTop + ' active=' + (document.activeElement ? document.activeElement.tagName + '.' + document.activeElement.className : '-'));
+}
+window.axScrollMark = axScrollMark;
+axScrollMark('start');
+window.addEventListener('scroll', function () { axScrollMark('scroll-event'); }, true);
+function axShowErrors() {
+  if (!window.__axErr.length) return;
+  var box = document.getElementById('__axerr');
+  if (!box) {
+    box = document.createElement('pre');
+    box.id = '__axerr';
+    box.style.cssText = 'position:relative;z-index:99;background:#3a0d0d;color:#ffd7d7;font:13px/1.5 monospace;padding:14px;white-space:pre-wrap;border-radius:10px;margin:14px 0';
+    document.querySelector('.chat').insertBefore(box, document.querySelector('.chat').firstChild);
+  }
+  box.textContent = window.__axErr.join('\n');
+}
+window.addEventListener('error', function (e) {
+  window.__axErr.push('JS: ' + (e.message || 'error') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno);
+  axShowErrors();
+});
+window.addEventListener('unhandledrejection', function (e) {
+  window.__axErr.push('PROMISE: ' + ((e.reason && e.reason.message) || e.reason));
+  axShowErrors();
+});
+</script>
+<script src="ax-core.js"></script>
+<script src="ax-view.js"></script>
+<script src="ax-panel.js"></script>
+<script src="ax-palette.js"></script>
+<script>
+(function () {
+  // Заглушки WebExtension API: панель не должна ходить на сервер.
+  // Макет API расширения. getURL отдаёт НАСТОЯЩИЙ адрес файла, поэтому
+  // AX.shadowCssImport() формирует боевой `@import url(...)`, который браузер
+  // сам подгружает в shadow root — ровно как в настоящем расширении.
+// Раньше здесь был ручной вброс CSS с вырезанием :root: полигон проверял не тот
+  // путь подключения и маскировал баг «токены не доходят до :host».
+  window.chrome = {
+    runtime: {
+      id: 'preview',
+      getManifest: function () { return { version: '2.7.0' }; },
+      getURL: function (path) { return new URL(path, location.href).href; },
+      sendMessage: function (msg, cb) {
+        var resp = { ok: false, error: 'preview' };
+        if (msg && msg.type === 'AX_GET_SETTINGS') {
+          resp = { ok: true, settings: { autoExecute: false, autoWeak: false, showToasts: false, uiTheme: 'light', panelSize: 'normal', echoMode: 'short', requireConfirm: true, maxAutoRuns: 0, autoDelay: 3, timeout: 120 } };
+        }
+        if (cb) { setTimeout(function () { cb(resp); }, 0); return; }
+        return Promise.resolve(resp);
+      },
+      onMessage: { addListener: function () {} }
+    },
+    storage: { sync: { get: function (k, cb) { cb({}); }, set: function (i, cb) { cb && cb(); } },
+               local: { get: function (k, cb) { cb({}); }, set: function (i, cb) { cb && cb(); } },
+               onChanged: { addListener: function () {} } }
+  };
+  window.AX.settings = Object.assign({}, window.AX.DEFAULTS, {
+    uiTheme: 'light', panelSize: 'normal', echoMode: 'short', showToasts: false, autoExecute: false
+  });
+
+  // CSS в shadow root подключает сам AX.shadowCssImport() через @import —
+  // отдельно ничего собирать не нужно: так проверяется настоящий путь боя.
+  var css = '';   // оставлено для совместимости вызовов ниже
+
+  function fakePre(code, lang) {
+    var pre = document.createElement('pre');
+    pre.className = 'code';
+    pre.setAttribute('data-language', lang || 'execute');
+    var c = document.createElement('code');
+    c.textContent = code;
+    pre.appendChild(c);
+    return pre;
+  }
+
+  function mount(slotId, code, opts) {
+    opts = opts || {};
+    var slot = document.getElementById(slotId);
+    var pre = fakePre(code, opts.lang);
+    slot.appendChild(pre);
+    var panel = window.AX.buildPanel(pre, { lang: opts.lang || 'execute', runner: opts.runner || 'shell' }, code, { weak: !!opts.weak });
+    // Вместо @import (внешние файлы в полигоне недоступны) — вставляем правила.
+    var style = document.createElement('style');
+    style.textContent = css;
+    pre.insertAdjacentElement('afterend', panel);
+    // Достаём shadow root через сохранённый прокси
+    var host = panel;
+    host.shadowRootStyle = style;
+    // Вставляем стиль первым узлом внутрь shadow root (порядок: @import-заглушка уже есть)
+    var inner = host.innerContent;
+    inner.parentNode.insertBefore(style, inner);
+    if (opts.after) opts.after(panel);
+    return panel;
+  }
+
+  mount('slot-ok', 'npm run build\nls -la dist', {});
+  mount('slot-multi', "python - <<'PY'\nimport os\nprint(os.getcwd())\nPY", { runner: 'python' });
+
+  var weak = mount('slot-weak', 'echo "нестрогая находка"', { weak: true });
+  weak.$('.ax-exec-cmd-preview').classList.add('expanded');
+  weak.$('.ax-exec-cmd-preview').querySelector('.ax-preview-text').textContent = 'echo "нестрогая находка"';
+  weak.$('.ax-exec-status').className = 'ax-exec-status ax-ok';
+  weak.$('.ax-exec-status').textContent = 'exit=0 #12 · stdout: 2 431 симв. · stderr: 0 симв.';
+  var out = weak.$('.ax-exec-output');
+  out.style.display = 'block';
+  out.textContent = [
+    '> ai-execute-runner@2.7.0 build',
+    '> powershell -File tools/build-release.ps1',
+    '',
+    '==> Проверка согласованности версий (ожидается 2.7.0)',
+    '==> Chrome/Edge: ai-execute-runner-2.7.0-chrome.zip',
+    '==> Firefox: ai-execute-runner-2.7.0-firefox.xpi',
+    '==> Сервер: ai-execute-runner-2.7.0-server.zip',
+    '==> Готово:',
+    '  ai-execute-runner-2.7.0-chrome.zip               79 320 B',
+    '  ai-execute-runner-2.7.0-firefox.xpi              80 309 B',
+    '  ai-execute-runner-2.7.0-server.zip               11 973 B'
+  ].join('\n');
+  weak.$('.ax-exec-after').style.display = 'flex';
+
+  var running = mount('slot-running', 'npm test', {});
+  running.$('.ax-exec-status').className = 'ax-exec-status ax-running';
+  running.$('.ax-exec-status').textContent = 'Выполняется локально…';
+  running.$('.ax-btn-run').disabled = true;
+  window.AX.setBtnLabel(running.$('.ax-btn-run'), null, 'Выполняется…');
+
+  var err = mount('slot-error', 'node scripts/missing.js', { runner: 'node' });
+  err.$('.ax-exec-status').className = 'ax-exec-status ax-err';
+  err.$('.ax-exec-status').textContent = 'exit=1 #13 · stdout: 0 симв. · stderr: 512 симв.';
+  // Объяснение ошибки собираем тем же кодом, что и в бою (describeFailure)
+  var failInfo = window.AXDetector.describeFailure({
+    exit_code: 1,
+    stderr: "Error: Cannot find module 'C:\\projects\\scripts\\missing.js'"
+  });
+  var explain = err.$('.ax-exec-explain');
+  explain.className = 'ax-exec-explain on';
+  explain.appendChild(window.AX.icon('warn'));
+  var explainText = document.createElement('span');
+  var explainTitle = document.createElement('b');
+  explainTitle.textContent = failInfo.title;
+  explainText.appendChild(explainTitle);
+  explainText.appendChild(document.createTextNode(' — ' + failInfo.hint));
+  explain.appendChild(explainText);
+  var eout = err.$('.ax-exec-output');
+  eout.style.display = 'block';
+  eout.textContent = "Error: Cannot find module 'C:\\projects\\scripts\\missing.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1077:15)";
+  err.$('.ax-exec-after').style.display = 'flex';
+
+  var view = mount('slot-view', 'view C:\\Users\\me\\screenshot.png', { runner: 'shell' });
+  view.$('.ax-exec-status').className = 'ax-exec-status ax-ok';
+  view.$('.ax-exec-status').textContent = 'view: C:\\Users\\me\\screenshot.png (image/png, 184 KB) #14';
+  var png = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="440" height="150">' +
+    '<rect width="440" height="150" fill="#1b1f2e"/>' +
+    '<rect x="16" y="16" width="408" height="26" rx="6" fill="#5b5bd6"/>' +
+    '<rect x="16" y="58" width="250" height="14" rx="6" fill="#39405a"/>' +
+    '<rect x="16" y="82" width="330" height="14" rx="6" fill="#39405a"/>' +
+    '<rect x="16" y="106" width="180" height="14" rx="6" fill="#39405a"/>' +
+    '<text x="28" y="34" font-family="monospace" font-size="13" fill="#fff">preview.png — 440×150</text></svg>');
+  window.AX.renderView(view, { path: 'C:\\Users\\me\\screenshot.png', mime: 'image/png', size: 188416, data_url: png });
+
+  // Тост и бейдж сервера для полноты картины
+  window.AX.toast('⚡ execute-блок найден — кнопка «Выполнить» под кодом');
+
+  // Бейдж сервера (живёт в DOM страницы, не в shadow root)
+  var dot = document.createElement('div');
+  dot.id = 'ax-server-dot';
+  dot.className = 'ax-online';
+  dot.textContent = 'exec: online';
+  dot.title = 'Сервер на связи: версия 2.7.0';
+  document.body.appendChild(dot);
+
+  // Сворачивание шумного вывода: тот же код, что в бою (AX.collapseNoisyOutput)
+  var noisy = mount('slot-noisy', 'npm install', {});
+  noisy.$('.ax-exec-status').className = 'ax-exec-status ax-ok';
+  noisy.$('.ax-exec-status').textContent = '✅ exit=0 #15 • stdout: 18 902 симв. • stderr: 0 симв.';
+  var listing = [];
+  for (var li = 0; li < 300; li++) listing.push('added package-' + li + '@1.0.' + li + ' in 412ms');
+  listing = listing.join('\n');
+  var nout = noisy.$('.ax-exec-output');
+  nout.style.display = 'block';
+  nout.textContent = listing;
+  noisy.$('.ax-exec-after').style.display = 'flex';
+  window.AX.collapseNoisyOutput(nout, noisy.$('.ax-noisy-hint'), listing);
+
+  // Палитра команд: та же отрисовка, что по Ctrl+Shift+E на странице чата.
+  var palNote = document.createElement('div');
+  palNote.className = 'demo-note';
+  palNote.textContent = 'Палитра команд (Ctrl+Shift+E)';
+  document.querySelector('.chat').appendChild(palNote);
+  var palHost = document.createElement('div');
+  palHost.id = 'palette-section';
+  palHost.style.cssText = 'position:relative;height:620px;border:1px dashed #cbd1e0;border-radius:14px;overflow:hidden;background:#fff';
+  document.querySelector('.chat').appendChild(palHost);
+  window.AX.cmdLog = [
+    { cmd: 'npm run build', runner: 'shell', t: Date.now() - 60000, exit: 0, status: 'done' },
+    { cmd: 'npm install', runner: 'shell', t: Date.now() - 900000, exit: 0, status: 'done' },
+    { cmd: 'python -m pytest -q', runner: 'python', t: Date.now() - 3600000, exit: 1, status: 'done' },
+    { cmd: 'curl -H "X-Auth-Token: «скрыто»" https://api.local/status', runner: 'shell', t: Date.now() - 7200000, exit: 0, status: 'done', secret: true },
+  ];
+  window.AX.pinned = [{ cmd: 'git status -sb', runner: 'shell', t: Date.now() - 120000 }];
+  window.AX.openCommandPalette();
+  axScrollMark('after-openCommandPalette');
+  var overlay = document.querySelector('.ax-palette-host');
+  var palStyle = document.createElement('style');
+  palStyle.textContent = css;
+  overlay.innerContent.parentNode.insertBefore(palStyle, overlay.innerContent);
+  palHost.appendChild(overlay);
+  overlay.style.position = 'absolute';
+  overlay.style.inset = '0';
+  overlay.style.background = 'rgba(16,18,28,0.45)';
+
+  // ?only=palette — только палитра (для отдельного снимка)
+  if (/[?&]only=palette/.test(location.search)) {
+    Array.prototype.forEach.call(document.querySelectorAll('.chat > *'), function (el) {
+      if (el !== palNote && el !== palHost) el.style.display = 'none';
+    });
+  }
+
+  // Диагностика полигона: ?diag=1 печатает состояние ключевых узлов.
+// Нужен, когда скриншот пустой — сразу видно, что не отрисовалось и почему.
+  if (/[?&]diag=1/.test(location.search)) {
+    var pal = document.querySelector('.ax-palette-host');
+    var palIn = pal ? !!pal.closest('#palette-section') : false;
+    var rows = pal ? pal.$$('.ax-palette-item').length : -1;
+    var report = [
+      'AX=' + (!!window.AX) + ' openCommandPalette=' + (!!(window.AX && window.AX.openCommandPalette)),
+      'paletteHost=' + !!pal + ' insideSection=' + palIn + ' rows=' + rows,
+      'overlayClasses=' + (pal ? pal.className : '-'),
+      'overlayDisplay=' + (pal ? getComputedStyle(pal).display : '-'),
+      'cmdLog=' + (window.AX ? window.AX.cmdLog.length : '-') + ' pinned=' + (window.AX ? window.AX.pinned.length : '-'),
+      'paletteSectionDisplay=' + (palHost ? getComputedStyle(palHost).display : '-'),
+      '--- computed внутри shadow ---',
+      (function () {
+        var b = document.querySelector('.ax-palette-host') || document.querySelector('.ax-modal-backdrop');
+        if (!b) return 'no shadow host';
+        var card = b.$('.ax-palette') || b.$('.ax-modal');
+        if (!card) return 'no card';
+        var cs = getComputedStyle(card);
+        var hostCs = getComputedStyle(b);
+        return 'tag=' + card.className + ' background=' + cs.backgroundColor + ' padding=' + cs.padding +
+               ' radius=' + cs.borderTopLeftRadius + ' shadow=' + (cs.boxShadow === 'none' ? 'none' : 'yes') +
+               ' || host --ax-surface=' + hostCs.getPropertyValue('--ax-surface') +
+               ' --ax-s-5=' + hostCs.getPropertyValue('--ax-s-5');
+      })(),
+      'chatChildren=' + document.querySelector('.chat').children.length,
+      'hiddenChildren=' + Array.prototype.filter.call(document.querySelector('.chat').children, function (e) { return e.style.display === 'none'; }).length,
+      'panelHosts=' + document.querySelectorAll('.ax-exec-panel').length,
+      'docHeight=' + document.documentElement.scrollHeight + ' bodyChildren=' + document.body.children.length,
+      '--- rects (top/height) ---',
+      'scrollLog: ' + (window.__axScroll || []).join(' | '),
+      'body:' + JSON.stringify(document.body.getBoundingClientRect()),
+      'chat:' + JSON.stringify(document.querySelector('.chat').getBoundingClientRect()),
+      'h1:' + JSON.stringify((document.querySelector('h1') || {}).getBoundingClientRect ? document.querySelector('h1').getBoundingClientRect() : null),
+      'msgUser:' + JSON.stringify((document.querySelector('.msg-user') || { getBoundingClientRect: function () { return null; } }).getBoundingClientRect()),
+      'firstPanel:' + JSON.stringify((document.querySelector('.ax-exec-panel') || { getBoundingClientRect: function () { return null; } }).getBoundingClientRect()),
+      'toast:' + JSON.stringify((document.querySelector('.ax-toast') || { getBoundingClientRect: function () { return null; } }).getBoundingClientRect()),
+      'serverDot:' + JSON.stringify((document.getElementById('ax-server-dot') || { getBoundingClientRect: function () { return null; } }).getBoundingClientRect()),
+    ].join('\n');
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'position:relative;z-index:10;background:#101420;color:#d7f0ff;font:13px monospace;padding:12px;white-space:pre-wrap;border-radius:10px;margin:12px 0';
+    pre.textContent = report;
+    document.querySelector('.chat').insertBefore(pre, document.querySelector('.chat').firstChild);
+  }
+
+  // Модалки: подтверждение запуска (опасная команда) и результат
+  var modalSlot = document.createElement('div');
+  modalSlot.className = 'demo-note';
+  modalSlot.textContent = 'Модалка подтверждения (опасная команда) и окно результата';
+  document.querySelector('.chat').appendChild(modalSlot);
+  var modalHost = document.createElement('div');
+  modalHost.id = 'modals-section';
+  modalHost.style.cssText = 'display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start';
+  modalHost.innerHTML =
+    '<div style="flex:1 1 460px;min-width:440px;height:520px;position:relative;border:1px dashed #cbd1e0;border-radius:14px;overflow:hidden">' +
+      '<div style="padding:10px 12px;font-size:12px;color:#868da0">подтверждение запуска — опасная команда</div></div>' +
+    '<div style="flex:1 1 460px;min-width:440px;height:520px;position:relative;border:1px dashed #cbd1e0;border-radius:14px;overflow:hidden">' +
+      '<div style="padding:10px 12px;font-size:12px;color:#868da0">подтверждение запуска — динамический код</div></div>';
+  document.querySelector('.chat').appendChild(modalHost);
+
+  ['rm -rf "/"', 'python -c "import shutil; shutil.rmtree(chr(47))"'].forEach(function (cmd, i) {
+    var res = window.AX.confirmModal({ lang: 'execute', runner: 'shell', command: cmd });
+    var holder = modalHost.children[i];
+    var backdrop = document.body.lastElementChild;
+    holder.appendChild(backdrop);
+    backdrop.style.position = 'absolute';
+    backdrop.style.inset = '0';
+    backdrop.style.padding = '10px';
+    var style = document.createElement('style');
+    style.textContent = css;
+    backdrop.innerContent.parentNode.insertBefore(style, backdrop.innerContent);
+    var m = backdrop.$('.ax-modal');
+    m.style.maxHeight = 'none';
+    m.style.animation = 'none';
+    // не ждём решения пользователя — это статичный снимок
+    void res;
+  });
+
+  // Окно результата (контекстное меню)
+  window.AX.showResultModal(
+    '[LOCAL EXEC RESULT] seq=14 status=done runner=shell exit=0 executed=yes cwd="C:\\projects"\n' +
+    'stdout_bytes=612 stderr_bytes=0 dur=0.4s\n' +
+    '$ git status -s\n--- stdout ---\n M extension/ax-panel.js\n M extension/content.css\n?? tools/\n',
+    true);
+  var lastBackdrop = document.body.lastElementChild;
+  var holder3 = document.createElement('div');
+  holder3.style.cssText = 'position:relative;height:320px;border:1px dashed #cbd1e0;border-radius:14px;overflow:hidden;margin-top:18px';
+  var cap3 = document.createElement('div');
+  cap3.style.cssText = 'padding:10px 12px;font-size:12px;color:#868da0';
+  cap3.textContent = 'окно результата (контекстное меню)';
+  document.querySelector('.chat').appendChild(holder3);
+  holder3.appendChild(cap3);
+  holder3.appendChild(lastBackdrop);
+  lastBackdrop.style.position = 'absolute';
+  lastBackdrop.style.inset = '0';
+  lastBackdrop.style.padding = '0';
+  var style3 = document.createElement('style');
+  style3.textContent = css;
+  lastBackdrop.innerContent.parentNode.insertBefore(style3, lastBackdrop.innerContent);
+  lastBackdrop.$('.ax-modal').style.maxHeight = 'none';
+  // ?only=modals — показать только блок с диалогами (для отдельного снимка)
+  if (/[?&]only=modals/.test(location.search)) {
+    Array.prototype.forEach.call(document.querySelectorAll('.msg-user, .msg-ai'), function (el) { el.style.display = 'none'; });
+    Array.prototype.forEach.call(document.querySelectorAll('.demo-note'), function (el) {
+      // оставляем подпись самого блока диалогов
+      if (!el.nextElementSibling || el.nextElementSibling.id !== 'modals-section') el.style.display = 'none';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.chat > div:not(#modals-section):not(.demo-note)'), function (el) {
+      el.style.display = 'none';
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+/* Тесты MCP-моста: background.js (маршруты /mcp/*, токен, дефолт-выключен),
+ * options.js (секция MCP) и соглашения между расширением и сервером.
+ *
+ * Зачем: MCP — экспериментальная функция, но именно она даёт доступ к
+ * Godot/Blender, и поломка сразу заметна. Плюс критично проверить, что всё
+ * выключено по умолчанию и что токен не утекает в content-script.
+ *
+ * Запуск:  cd tests && npm run test:mcp
+ */
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { JSDOM } = require('jsdom');
+
+const EXT_DIR = path.join(__dirname, '..', 'extension');
+const ROOT = path.join(__dirname, '..');
+const read = (f) => fs.readFileSync(path.join(EXT_DIR, f), 'utf8');
+const readRoot = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+
+let passed = 0;
+let failed = 0;
+const failures = [];
+function check(name, cond, extra) {
+  if (cond) { passed++; console.log('  ok   ' + name); }
+  else {
+    failed++;
+    failures.push(name + (extra !== undefined ? ' -> ' + JSON.stringify(extra) : ''));
+    console.log('  FAIL ' + name + (extra !== undefined ? ' -> ' + JSON.stringify(extra) : ''));
+  }
+}
+
+// ---------- окружение для background.js ----------
+function makeBgEnv(opts) {
+  opts = opts || {};
+  const store = { sync: Object.assign({}, opts.sync || {}), local: Object.assign({}, opts.local || {}) };
+  const calls = { fetch: [] };
+  const area = (name) => ({
+    get: (keys, cb) => {
+      const list = Array.isArray(keys) ? keys : Object.keys(keys || {});
+      const out = {};
+      for (const k of list) if (k in store[name]) out[k] = store[name][k];
+      if (cb) { cb(out); return undefined; }
+      return Promise.resolve(out);
+    },
+    set: (items, cb) => { Object.assign(store[name], items); if (cb) cb(); return Promise.resolve(); },
+    remove: (keys, cb) => { if (cb) cb(); return Promise.resolve(); },
+  });
+  let msgListener = null;
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    url: 'https://chatgpt.com/', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  w.chrome = {
+    storage: { sync: area('sync'), local: area('local'), onChanged: { addListener() {} } },
+    runtime: {
+      id: 'test', getManifest: () => ({ version: '2.6.1' }), getURL: (p) => 'chrome-extension://test/' + p,
+      onMessage: { addListener: (fn) => { msgListener = fn; } },
+      onInstalled: { addListener() {} }, onStartup: { addListener() {} },
+    },
+    contextMenus: { create: (o, cb) => { if (cb) cb(); }, removeAll: (cb) => { if (cb) cb(); }, onClicked: { addListener() {} } },
+    tabs: { sendMessage() { return Promise.resolve({}); } },
+    scripting: { insertCSS: () => Promise.resolve(), executeScript: () => Promise.resolve() },
+  };
+  if (!w.AbortController) w.AbortController = AbortController;
+  w.fetch = (url, init) => {
+    calls.fetch.push({ url: String(url), init: init || {} });
+    if (opts.fetchImpl) return opts.fetchImpl(String(url), init || {}, calls);
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+  };
+  w.eval(read('background.js'));
+  const send = (msg) => new Promise((resolve) => {
+    let settled = false;
+    const keep = msgListener(msg, { id: 1 }, (resp) => { settled = true; resolve(resp); });
+    if (keep === true) return;
+    setTimeout(() => { if (!settled) resolve({ ok: false, error: 'no-response' }); }, 400);
+  });
+  return { w, store, calls, send };
+}
+
+const jsonOk = (payload) => () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) });
+
+// ---------- 1. background: маршруты и токен ----------
+console.log('\n[1] background: MCP-маршруты ходят на сервер с токеном');
+(async () => {
+  const e = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765', timeout: 30 },
+    local: { authToken: 'MCP-TOKEN' },
+    fetchImpl: jsonOk({ ok: true, enabled: true, servers: [] }),
+  });
+  await e.send({ type: 'AX_MCP_STATUS' });
+  await e.send({ type: 'AX_MCP_TOOLS' });
+  await e.send({ type: 'AX_MCP_CALL', payload: { server: 'blender', tool: 'create_cube', args: { size: 2 } } });
+  await e.send({ type: 'AX_MCP_RELOAD' });
+
+  const paths = e.calls.fetch.map((c) => c.url.replace('http://127.0.0.1:8765', ''));
+  check('AX_MCP_STATUS -> /mcp/servers', paths.indexOf('/mcp/servers') >= 0, paths);
+  check('AX_MCP_TOOLS -> /mcp/tools', paths.indexOf('/mcp/tools') >= 0, paths);
+  check('AX_MCP_CALL -> /mcp/call', paths.indexOf('/mcp/call') >= 0, paths);
+  check('AX_MCP_RELOAD -> /mcp/reload', paths.indexOf('/mcp/reload') >= 0, paths);
+
+  const toolsCall = e.calls.fetch.find((c) => c.url.endsWith('/mcp/tools'));
+  check('токен в заголовке', toolsCall && toolsCall.init.headers['X-Auth-Token'] === 'MCP-TOKEN',
+    toolsCall && toolsCall.init.headers);
+  check('POST-тело — JSON', toolsCall && toolsCall.init.method === 'POST'
+    && /application\/json/.test(toolsCall.init.headers['Content-Type']), toolsCall && toolsCall.init.headers);
+
+  const callReq = e.calls.fetch.find((c) => c.url.endsWith('/mcp/call'));
+  let body = {};
+  try { body = JSON.parse(callReq.init.body); } catch (err) { /* пусто */ }
+  check('аргументы уходят как arguments', !!body.arguments && body.arguments.size === 2, body);
+  check('server и tool переданы', body.server === 'blender' && body.tool === 'create_cube', body);
+
+  console.log('\n[2] background: без токена заголовок не добавляется');
+  const e2 = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765' }, local: {},
+    fetchImpl: jsonOk({ ok: true, enabled: false, servers: [] }),
+  });
+  await e2.send({ type: 'AX_MCP_TOOLS' });
+  check('заголовка токена нет', !!e2.calls.fetch[0] && !e2.calls.fetch[0].init.headers['X-Auth-Token'],
+    e2.calls.fetch[0] && e2.calls.fetch[0].init.headers);
+
+  console.log('\n[3] background: сервер недоступен не роняет расширение');
+  const e3 = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765' }, local: {},
+    fetchImpl: () => Promise.reject(new Error('ECONNREFUSED')),
+  });
+  const st3 = await e3.send({ type: 'AX_MCP_STATUS' });
+  check('статус вернулся, а не упал', !!(st3 && st3.ok && st3.status), st3);
+  check('reachable=false', !!(st3 && st3.status && st3.status.reachable === false), st3 && st3.status);
+  const toolsErr = await e3.send({ type: 'AX_MCP_TOOLS' });
+  check('инструменты: ok=false с текстом ошибки',
+    !!(toolsErr && toolsErr.ok === false && /ECONNREFUSED/.test(String(toolsErr.error))), toolsErr);
+
+  console.log('\n[4] background: MCP выключен на сервере — понятное сообщение');
+  const e4 = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765' }, local: {},
+    fetchImpl: jsonOk({ enabled: false, servers: [], hint: 'запустите сервер с --mcp' }),
+  });
+  const st4 = await e4.send({ type: 'AX_MCP_STATUS' });
+  check('enabled=false распознан', !!(st4 && st4.status && st4.status.enabled === false), st4 && st4.status);
+  check('сервер при этом доступен', !!(st4 && st4.status && st4.status.reachable === true), st4 && st4.status);
+
+  // ---------- 5. Выключено по умолчанию ----------
+  console.log('\n[5] MCP выключен по умолчанию (и в расширении, и на сервере)');
+  const bgJs = read('background.js');
+  const optJs = read('options.js');
+  const srvPy = readRoot(path.join('server', 'server.py'));
+  check('background.js: mcpEnabled по умолчанию false', /mcpEnabled:\s*false/.test(bgJs));
+  check('options.js: DEFAULTS.mcpEnabled = false', /mcpEnabled:\s*false/.test(optJs));
+  check('options.js: включение только при явном true', /mcpEnabled'\)\.checked = d\.mcpEnabled === true/.test(optJs));
+  check('server.py: MCP_REGISTRY = None по умолчанию', /MCP_REGISTRY = None/.test(srvPy));
+  check('server.py: флаг --mcp есть', /add_argument\('--mcp'/.test(srvPy));
+  const cfg = JSON.parse(readRoot(path.join('server', 'mcp_servers.json')));
+  check('поставляемый конфиг: все серверы выключены', cfg.servers.every((s) => s.enabled === false), cfg.servers);
+
+  // ---------- 6. Безопасность ----------
+  console.log('\n[6] MCP-эндпоинты закрыты токеном, как /run');
+  check('GET /mcp/servers проверяет токен',
+    /req_path == '\/mcp\/servers'[\s\S]{0,400}?self\._check_token\(\)/.test(srvPy));
+  check('POST /mcp/* проверяет токен',
+    /def _mcp_post[\s\S]{0,400}?self\._check_token\(\)/.test(srvPy));
+  check('do_POST сначала проверяет Host/Origin',
+    /def do_POST[\s\S]{0,300}?self\._allowed\(\)[\s\S]{0,250}?_mcp_post/.test(srvPy));
+  check('вызов требует server и tool', /нужны поля server и tool/.test(srvPy));
+  check('arguments обязан быть объектом', /arguments должен быть объектом/.test(srvPy));
+  check('выключенный сервер вызову не подлежит', /выключен/.test(readRoot(path.join('server', 'mcp_client.py'))));
+
+  // ---------- 7. UI ----------
+  console.log('\n[7] options: раздел «Экспериментальное» с MCP внутри');
+  const optHtml = read('options.html');
+  check('есть карточка #sec-exp', /id="sec-exp"/.test(optHtml));
+  check('карточка называется «Экспериментальное»',
+    /<svg><use href="#i-plug"><\/use><\/svg><\/span>\s*Экспериментальное/.test(optHtml));
+  check('на карточке подсказка про MCP', /card-hint">MCP и другие новые функции/.test(optHtml));
+  check('есть пункт в боковом меню',
+    /<a href="#sec-exp" data-nav="sec-exp"/.test(optHtml));
+  check('MCP-блок вложен в sec-exp, а не отдельная карточка',
+    /<div class="ax-sub" id="sec-mcp">/.test(optHtml) && !/<details class="card" id="sec-mcp"/.test(optHtml));
+  check('есть переключатель #mcpEnabled', /id="mcpEnabled"/.test(optHtml));
+  check('визуальный бейдж «экспериментально»', /ax-chip-warn">экспериментально/.test(optHtml));
+  check('предупреждение «выключено по умолчанию»', /выключено по умолчанию/.test(optHtml));
+  check('указано про флаг --mcp', /--mcp/.test(optHtml));
+  check('указано ограничение stdio', /stdio/.test(optHtml));
+  check('есть кнопки проверки и перезагрузки', /id="mcpRefresh"/.test(optHtml) && /id="mcpReload"/.test(optHtml));
+  check('блок состояний скрыт по умолчанию', /id="mcpBox" hidden/.test(optHtml));
+  check('options.js скрывает блок по флажку',
+    /function updateMcpBox/.test(optJs) && /box\.hidden = !on/.test(optJs));
+  check('options.js не ходит на сервер напрямую', !/fetch\(\s*['"`]http:\/\/127/.test(optJs));
+  check('options.js шлёт AX_MCP_* в background',
+    /AX_MCP_STATUS/.test(optJs) && /AX_MCP_TOOLS/.test(optJs) && /AX_MCP_RELOAD/.test(optJs));
+  const css = read('ax-ui.css');
+  check('CSS: стиль врезки-предупреждения', /\.ax-warn-box/.test(css));
+  check('CSS: стиль подблока', /\.ax-sub\b/.test(css) && /\.ax-sub-title/.test(css));
+  check('CSS: разделитель подблока использует токен темы',
+    /\.ax-sub\s*\{[^}]*--ax-border/.test(css));
+
+  // ---------- 8. Протокол ----------
+  console.log('\n[8] MCP-клиент реализует протокол');
+  const mcpPy = readRoot(path.join('server', 'mcp_client.py'));
+  check('объявлен initialize', /'initialize'/.test(mcpPy));
+  check('шлётся notifications/initialized', /notifications\/initialized/.test(mcpPy));
+  check('реализован tools/list', /tools\/list/.test(mcpPy));
+  check('реализован tools/call', /tools\/call/.test(mcpPy));
+  check('заявлена версия протокола', /PROTOCOL_VERSION = '2024-11-05'/.test(mcpPy));
+  check('JSON-RPC 2.0', /'jsonrpc': '2\.0'/.test(mcpPy));
+  check('ошибка сервера превращается в McpError', /raise McpError\(str\(msg\)\)/.test(mcpPy));
+  check('таймаут реализован', /превышено время ожидания/.test(mcpPy));
+  check('процессы глушатся при остановке сервера', /MCP_REGISTRY\.shutdown\(\)/.test(srvPy));
+  check('мусор в stdout не ломает протокол', /continue\s+# мусор в stdout/.test(mcpPy));
+
+  // ---------- 9. Версии согласованы (релизный процесс) ----------
+  console.log('\n[9] версия в манифестах, сервере и MCP-клиенте одна');
+  const mf = JSON.parse(read('manifest.json'));
+  const mfc = JSON.parse(read('manifest.chrome.json'));
+  const srvVer = (/^VERSION = '([^']+)'/m).exec(srvPy)[1];
+  const cliVer = (/'version': '([^']+)'/.exec(mcpPy) || [])[1];
+  check('manifest.json = manifest.chrome.json', mf.version === mfc.version,
+    mf.version + ' / ' + mfc.version);
+  check('manifest.json = server.py', mf.version === srvVer, mf.version + ' / ' + srvVer);
+  check('manifest.json = mcp_client.py CLIENT_INFO', mf.version === cliVer, mf.version + ' / ' + cliVer);
+  check('версия в формате X.Y.Z', /^\d+\.\d+\.\d+$/.test(mf.version), mf.version);
+
+  console.log('\n' + '-'.repeat(52));
+  console.log('MCP: ' + passed + ' ok, ' + failed + ' fail');
+  if (failures.length) {
+    console.log('\nПровалы:');
+    failures.forEach((f) => console.log('  - ' + f));
+  }
+  process.exitCode = failed ? 1 : 0;
+})().catch((e) => {
+  console.error('АВАРИЯ ТЕСТА:', e && e.stack ? e.stack : e);
+  process.exitCode = 1;
+});
