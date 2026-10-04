@@ -491,6 +491,11 @@
     ['powershell', 'powershell'],
     ['python', 'python'],
     ['node', 'node'],
+    // mcp нужен здесь по двум причинам: runnerValid() должен признавать среду
+    // (иначе теряется память среды блока), а fillRunnerSelect() строит список
+    // выбора именно из RUNNER_OPTIONS — без 'mcp' селект для блока execute-mcp
+    // оставался бы на 'shell', и JSON ушёл бы в cmd.
+    ['mcp', 'mcp'],
   ];
   function runnerValid(r) { return RUNNER_OPTIONS.some(([v]) => v === r) ? r : null; }
 

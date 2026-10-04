@@ -231,6 +231,15 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
     && det.EXEC_LANGS.get('execute') === 'shell');
   check('сниффер не считает mcp за python/node',
     det.sniffRunner('{"server":"a","tool":"b"}') !== 'mcp');
+  // Регрессия: без 'mcp' в RUNNER_OPTIONS селект среды для блока execute-mcp
+  // оставался на 'shell', и JSON уходил в cmd вместо вызова инструмента.
+  check('runnerValid признаёт mcp', det.runnerValid('mcp') === 'mcp');
+  check('mcp есть в списке выбора среды',
+    det.RUNNER_OPTIONS.some(([v]) => v === 'mcp'),
+    det.RUNNER_OPTIONS.map((x) => x[0]));
+  check('обычные среды не сломались', det.runnerValid('shell') === 'shell'
+    && det.runnerValid('python') === 'python'
+    && det.runnerValid('нет-такой') === null);
 
   const coreJs = read('ax-core.js');
   check('ax-core: есть parseMcpBlock', /AX\.parseMcpBlock = function/.test(coreJs));

@@ -51,7 +51,7 @@ $demoScript = @'
     var r = document.getElementById('defaultRunner'); if (r) r.value = demo.defaultRunner;
     seg('echoMode', demo.echoMode); seg('uiTheme', 'auto'); seg('panelSize', demo.panelSize);
     var st = document.getElementById('status');
-    if (st) { st.className = 'status ok'; st.textContent = '\u2705 Сервер на связи: версия 2.8.0, whitelist выключен'; }
+    if (st) { st.className = 'status ok'; st.textContent = '\u2705 Сервер на связи: версия 2.8.1, whitelist выключен'; }
     var wl = document.getElementById('whitelistInfo');
     if (wl) { wl.className = 'ax-chip ax-chip-warn'; wl.textContent = 'Whitelist выключен — рекомендуется --whitelist'; }
     var hc = document.getElementById('histCount'); if (hc) hc.textContent = '3';

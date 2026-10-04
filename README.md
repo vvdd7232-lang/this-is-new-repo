@@ -1,4 +1,4 @@
-# ⚡ AI Execute Runner — ИИ из браузера выполняет команды на твоём ПК
+﻿# ⚡ AI Execute Runner — ИИ из браузера выполняет команды на твоём ПК
 
 Аналог **Claude Code / Codex**, но прямо в обычных чатах **ChatGPT**, **Claude**, **Arena** и **Google AI Mode** (а также Gemini, Copilot, Grok, DeepSeek и др.):
 
@@ -277,7 +277,7 @@ view C:\Users\me\screenshot.png
 
 > 🔀 Среду выполнения можно переключить: список прямо на панели под блоком + в окне подтверждения (shell / powershell / python / node). ИИ задаёт начальное значение языком блока, последнее слово — за тобой. Выбор запоминается для каждой команды и переживает перерисовки чата и перезагрузку вкладки.
 
-## 🧩 Блок `execute-mcp` — MCP прямо из чата (v2.8.0)
+## 🧩 Блок `execute-mcp` — MCP прямо из чата (v2.8.1)
 
 В 2.7.0 MCP работал только на бэкенде: сервер поднимал MCP-серверы и отдавал
 инструменты, но ИИ в чате не мог ими воспользоваться. Теперь может:
@@ -496,7 +496,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.8.0
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.8.1
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и
