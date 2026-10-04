@@ -152,6 +152,36 @@
    *        (использует палитра команд по Ctrl+Enter). Опасные команды всё равно
    *        требуют подтверждения — предохранитель не обходится.
    */
+  // ---------- MCP [экспериментально] ----------
+  // Блок execute-mcp: содержимое — JSON с server/tool/arguments. Ответ
+  // приводится к тому же виду, что у /run, чтобы дальше шёл обычный путь
+  // (панель, чат, журнал, автопилот). Ошибка разбора никуда не уходит на
+  // сервер — её сразу видно пользователю.
+  //
+  // Объявлено на уровне модуля, а не внутри runArbitrary: вызывают их две
+  // независимые функции (runArbitrary и doRun блока).
+
+  function sendMcpBlock(cmd, cb) {
+    const parsed = AX.parseMcpBlock(cmd);
+    if (!parsed.ok) { cb({ ok: false, error: parsed.error }); return; }
+    AX.safeSend(
+      { type: 'AX_MCP_CALL', payload: { server: parsed.server, tool: parsed.tool, args: parsed.args, timeout: parsed.timeout } },
+      (resp) => {
+        if (!resp) { cb({ ok: false, error: 'нет ответа от расширения' }); return; }
+        if (!resp.ok) { cb({ ok: false, error: resp.error || 'ошибка MCP' }); return; }
+        cb({ ok: true, result: AX.mcpResultToRun(resp.result) });
+      }
+    );
+  }
+
+  function sendRun(cmd, runRunner, cb) {
+    if (runRunner === 'mcp') { sendMcpBlock(cmd, cb); return; }
+    AX.safeSend(
+      { type: 'AX_RUN', payload: { command: cmd, runner: runRunner, timeout: AX.settings.timeout, cwd: AX.settings.defaultCwd || undefined } },
+      cb
+    );
+  }
+
   AX.runArbitrary = async function (text, defaultRunner, opts) {
     opts = opts || {};
     const command = (text || '').trim();
@@ -179,9 +209,7 @@
     }
     AX.toast('⏳ Выполняется локально…');
     const mySeq = ++AX.axSeq;
-    AX.safeSend(
-      { type: 'AX_RUN', payload: { command, runner: runRunner, timeout: AX.settings.timeout, cwd: AX.settings.defaultCwd || undefined } },
-      (resp) => {
+    sendRun(command, runRunner, (resp) => {
         release();
         if (!resp || !resp.ok) {
           AX.toast('❌ ' + ((resp && resp.error) || 'нет ответа') + ' — запущен ли server.py?');
@@ -198,8 +226,7 @@
         try { AX.logCommand(command, r.runner || runRunner, r.exit_code, r.blocked ? 'blocked' : 'done'); } catch (e) { /* ignore */ }
         const formatted = AX.formatRunResult(command, runRunner, r, mySeq, 'full');
         AX.showResultModal(formatted, r.exit_code === 0);
-      }
-    );
+    });
   };
 
   // ---------- очередь автозапусков ----------
@@ -621,9 +648,7 @@
         runStatusSent = true;
         AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
       }, 800) : null;
-      AX.safeSend(
-        { type: 'AX_RUN', payload: { command: cmd, runner: runRunner, timeout: AX.settings.timeout, cwd: AX.settings.defaultCwd || undefined } },
-        (resp) => {
+      sendRun(cmd, runRunner, (resp) => {
           runFinished = true;
           if (runStatusTimer) clearTimeout(runStatusTimer);
           btnRun.disabled = false;

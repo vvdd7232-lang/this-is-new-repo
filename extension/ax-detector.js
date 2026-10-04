@@ -22,6 +22,11 @@
     ['execute-node', 'node'], ['node-exec', 'node'],
     ['execute-pwsh', 'powershell'], ['execute-powershell', 'powershell'],
     ['exec-pwsh', 'powershell'],
+    // MCP [экспериментально]: блок execute-mcp выполняет инструмент внешнего
+    // MCP-сервера, а не shell-команду. Содержимое — JSON с полями
+    // server / tool / arguments.
+    ['execute-mcp', 'mcp'], ['execute:mcp', 'mcp'], ['exec-mcp', 'mcp'],
+    ['mcp-execute', 'mcp'],
   ]);
 
   // Unicode-пробелы и невидимые модификаторы (NBSP и родня) — их вставляют
@@ -646,7 +651,8 @@
       if (c.length > 40 || /[.:;!?]$/.test(t.trim())) continue;
       if (/\bexecut(e|ion)?\b/i.test(t) || /(^|[^a-z])exec([^a-z]|$)/i.test(t)) {
         let runner = 'shell';
-        if (/python/i.test(t)) runner = 'python';
+        if (/mcp/i.test(t)) runner = 'mcp';
+        else if (/python/i.test(t)) runner = 'python';
         else if (/node|\bjs\b/i.test(t)) runner = 'node';
         else if (/pwsh|powershell/i.test(t)) runner = 'powershell';
         return { lang: 'execute', runner };
@@ -654,11 +660,12 @@
     }
     if (code) {
       const first = ((code.innerText != null ? code.innerText : code.textContent) || '').split('\n')[0].trim().toLowerCase();
-      const m = first.match(/^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(execut(?:e|ion)?|exec)(?:[-:](python|js|node|pwsh|powershell))?$/i);
+      const m = first.match(/^(?:#!\/usr\/bin\/env\s+|#!|\/\/|#)\s*(execut(?:e|ion)?|exec)(?:[-:](python|js|node|pwsh|powershell|mcp))?$/i);
       if (m) {
         let runner = 'shell';
         const suf = (m[2] || '').toLowerCase();
-        if (/python/.test(suf)) runner = 'python';
+        if (/mcp/.test(suf)) runner = 'mcp';
+        else if (/python/.test(suf)) runner = 'python';
         else if (/node|js/.test(suf)) runner = 'node';
         else if (/pwsh|powershell/.test(suf)) runner = 'powershell';
         return { lang: 'execute', runner };

@@ -418,6 +418,78 @@
     return txt;
   };
 
+  // ---------- MCP [экспериментально] ----------
+  // Блок execute-mcp содержит JSON: {"server": "...", "tool": "...",
+  // "arguments": {...}}. Разбор вынесен сюда, а не в панель, чтобы его можно
+  // было покрыть тестами и переиспользовать из палитры.
+
+  AX.parseMcpBlock = function (cmd) {
+    const raw = (cmd || '').trim();
+    if (!raw) return { ok: false, error: 'пустой блок execute-mcp' };
+    // Чаты любят оборачивать JSON в ``` — срезаем ограждение, если есть.
+    let text = raw;
+    const fence = text.match(/^```[a-z]*\s*\n([\s\S]*?)\n?```$/i);
+    if (fence) text = fence[1].trim();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      return { ok: false, error: 'execute-mcp ждёт JSON вида {"server":"...","tool":"...","arguments":{}}' };
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { ok: false, error: 'execute-mcp ждёт JSON-объект' };
+    }
+    const server = String(data.server || '').trim();
+    const tool = String(data.tool || data.name || '').trim();
+    if (!server || !tool) {
+      return { ok: false, error: 'в execute-mcp нужны поля server и tool' };
+    }
+    let args = data.arguments;
+    if (args == null) args = data.args;
+    if (args == null) args = {};
+    if (typeof args === 'string') {
+      try { args = JSON.parse(args); } catch (e) { /* оставим строкой — сервер разберётся */ }
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      return { ok: false, error: 'arguments должен быть JSON-объектом' };
+    }
+    return { ok: true, server, tool, args, timeout: data.timeout };
+  };
+
+  // Ответ MCP -> тот же вид, что у /run, чтобы панель, автопилот и чат
+  // работали одинаково для всех сред.
+  AX.mcpResultToRun = function (data, durationMs) {
+    const res = (data && data.result) || {};
+    let text = '';
+    try {
+      const content = res.content;
+      if (Array.isArray(content)) {
+        text = content.map((c) => {
+          if (!c) return '';
+          if (typeof c === 'string') return c;
+          if (c.type === 'text') return c.text || '';
+          if (c.type === 'image') return '[изображение]';
+          return JSON.stringify(c);
+        }).join('\n');
+      } else if (typeof res === 'string') {
+        text = res;
+      } else if (res && Object.keys(res).length) {
+        text = JSON.stringify(res, null, 2);
+      }
+    } catch (e) { text = ''; }
+    if (!text) text = '(инструмент вернул пустой результат)';
+    const isErr = !!(res && res.isError);
+    return {
+      executed: true,
+      runner: 'mcp',
+      exit_code: isErr ? 1 : 0,
+      stdout: text,
+      stderr: isErr ? 'инструмент MCP вернул isError: true' : '',
+      duration_ms: durationMs || 0,
+      mcp: true,
+    };
+  };
+
   AX.formatRunResult = function (cmd, runRunner, r, seq, echoMode) {
     r = r || {};
     if (r.view) {

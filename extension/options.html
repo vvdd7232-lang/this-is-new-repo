@@ -625,9 +625,9 @@
             <span class="ax-sub-title">MCP — внешние MCP-серверы</span>
             <span class="ax-chip ax-chip-warn">экспериментально</span>
           </div>
-          <div class="sub">Подключение внешних MCP-серверов: их инструменты появляются в палитре команд
-            (<span class="kbd-inline">Ctrl</span>+<span class="kbd-inline">Shift</span>+<span class="kbd-inline">E</span>),
-            откуда их можно запустить или вставить в чат как <code>execute-mcp</code>-блок.</div>
+          <div class="sub">Подключение внешних MCP-серверов: ИИ получает их инструменты и вызывает
+            их блоком <code>execute-mcp</code> с JSON внутри — например,
+            <code>{"server":"blender","tool":"create_cube","arguments":{"size":2}}</code>.</div>
 
           <div class="ax-warn-box">
             Браузер не умеет запускать процессы, поэтому MCP-серверы поднимает локальный сервер —

@@ -221,7 +221,82 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
   check('manifest.json = mcp_client.py CLIENT_INFO', mf.version === cliVer, mf.version + ' / ' + cliVer);
   check('версия в формате X.Y.Z', /^\d+\.\d+\.\d+$/.test(mf.version), mf.version);
 
-  console.log('\n' + '-'.repeat(52));
+  console.log('\n[10] блок execute-mcp: детект, разбор, приведение результата');
+  const det = require(path.join(EXT_DIR, 'ax-detector.js'));
+  check('execute-mcp в EXEC_LANGS -> runner mcp', det.EXEC_LANGS.get('execute-mcp') === 'mcp');
+  check('execute:mcp -> runner mcp', det.EXEC_LANGS.get('execute:mcp') === 'mcp');
+  check('mcp-execute -> runner mcp', det.EXEC_LANGS.get('mcp-execute') === 'mcp');
+  check('остальные среды не сломались', det.EXEC_LANGS.get('execute-python') === 'python'
+    && det.EXEC_LANGS.get('execute-pwsh') === 'powershell'
+    && det.EXEC_LANGS.get('execute') === 'shell');
+  check('сниффер не считает mcp за python/node',
+    det.sniffRunner('{"server":"a","tool":"b"}') !== 'mcp');
+
+  const coreJs = read('ax-core.js');
+  check('ax-core: есть parseMcpBlock', /AX\.parseMcpBlock = function/.test(coreJs));
+  check('ax-core: есть mcpResultToRun', /AX\.mcpResultToRun = function/.test(coreJs));
+  check('панель шлёт AX_MCP_CALL для runner=mcp',
+    /runRunner === 'mcp'/.test(read('ax-panel.js')) && /type: 'AX_MCP_CALL'/.test(read('ax-panel.js')));
+
+  // Промпт должен учить ИИ новому блоку — иначе фича недоступна из чата.
+  const promptSrc = read('prompt.js');
+  check('промпт упоминает execute-mcp', /execute-mcp/.test(promptSrc));
+  check('промпт объясняет JSON-формат', /"server".*"tool".*"arguments"/.test(promptSrc));
+  check('промпт запрещает выдумывать инструменты', /НЕ выдумывай имена серверов/.test(promptSrc));
+  check('SYSTEM_PROMPT.md синхронизирован', /execute-mcp/.test(readRoot('SYSTEM_PROMPT.md')));
+
+  // Разбор execute-mcp проверяем по-настоящему: грузим ax-core в jsdom и
+// вызываем функции — regex по исходнику не поймал бы опечатку в разборе.
+console.log('\n[11] разбор блока execute-mcp и приведение результата (jsdom)');
+try {
+  const { JSDOM: JSDOM2 } = require('jsdom');
+  const dom2 = new JSDOM('<!doctype html><body><textarea id="t"></textarea></body>', {
+    url: 'https://chatgpt.com/', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w2 = dom2.window;
+  w2.chrome = { storage: { sync: { get: () => Promise.resolve({}), set: () => Promise.resolve() }, local: { get: () => Promise.resolve({}) } }, runtime: { sendMessage: () => Promise.resolve({}), getManifest: () => ({ version: '2.7.0' }) } };
+  w2.browser = undefined;
+  w2.eval(read('ax-detector.js'));
+  w2.eval(read('ax-core.js'));
+  const A = w2.AX;
+
+  const p1 = A.parseMcpBlock('{"server":"blender","tool":"create_cube","arguments":{"size":2}}');
+  check('корректный блок разобран', p1.ok === true && p1.server === 'blender'
+    && p1.tool === 'create_cube' && p1.args.size === 2, p1);
+
+  const p2 = A.parseMcpBlock('{"server":"godot","tool":"run"}');
+  check('без arguments — пустой объект', p2.ok === true && A.parseMcpBlock('{"server":"g","tool":"t"}').args !== null
+    && Object.keys(p2.args).length === 0, p2);
+
+  const p3 = A.parseMcpBlock('не json');
+  check('мусор отклонён с понятной ошибкой', p3.ok === false && /JSON/.test(p3.error), p3);
+
+  const p4 = A.parseMcpBlock('{"tool":"t"}');
+  check('без server — ошибка', p4.ok === false && /server/.test(p4.error), p4);
+
+  const p5 = A.parseMcpBlock('{"server":"s","tool":"t","arguments":[1,2]}');
+  check('arguments-массив отклонён', p5.ok === false && /объект/.test(p5.error), p5);
+
+  const p6 = A.parseMcpBlock('```json\n{"server":"s","tool":"t"}\n```');
+  check('JSON в ограждении ``` разбирается', p6.ok === true && p6.server === 's', p6);
+
+  const r1 = A.mcpResultToRun({ result: { content: [{ type: 'text', text: 'готово' }] } });
+  check('ответ превращён в вид /run', r1.runner === 'mcp' && r1.exit_code === 0
+    && r1.stdout === 'готово', r1);
+
+  const r2 = A.mcpResultToRun({ result: { content: [{ type: 'text', text: 'ошибка' }], isError: true } });
+  check('isError даёт ненулевой exit_code', r2.exit_code === 1 && /isError/.test(r2.stderr), r2);
+
+  const r3 = A.mcpResultToRun({ result: {} });
+  check('пустой результат не путается', r3.exit_code === 0 && r3.stdout.length > 0, r3);
+
+  const r4 = A.mcpResultToRun({ result: { content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] } });
+  check('несколько content склеиваются', /a[\s\S]*b/.test(r4.stdout), r4.stdout);
+} catch (e) {
+  check('разбор execute-mcp в jsdom', false, e && e.message);
+}
+
+console.log('\n' + '-'.repeat(52));
   console.log('MCP: ' + passed + ' ok, ' + failed + ' fail');
   if (failures.length) {
     console.log('\nПровалы:');

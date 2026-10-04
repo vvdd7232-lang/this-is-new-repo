@@ -53,7 +53,7 @@ ai-execute-extension/
 │   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов (67)
 │   ├── features.test.js       ← палитра команд, свёрнутый вывод, журнал, секреты (102)
 │   ├── bridge.test.js         ← background.js и popup.js: сервер, токен, маршрутизация (37)
-│   ├── mcp.test.js            ← MCP: маршруты, токен, opt-in, безопасность, UI (48)
+│   ├── mcp.test.js            ← MCP: маршруты, токен, opt-in, безопасность, UI, execute-mcp (80)
 │   ├── fake_mcp_server.py     ← тестовый MCP-сервер на stdio
 │   ├── test_mcp_client.py     ← MCP-клиент: протокол, таймауты, конфиг (23)
 │   └── test_server.py         ← сервер: whitelist, decoding, view, CORS, /mcp/* (53)
@@ -182,6 +182,16 @@ python server.py --no-mcp   # не спрашивать и не включать
 > Выбор действует только на текущий запуск: `server/mcp_servers.json` сервер не переписывает.
 
 **Шаг 3. Включи галочку** ⚙️ Настройки → раздел **«Экспериментальное»** → «Включить MCP в расширении», затем «Сохранить всё». Кнопка «Проверить серверы» покажет список серверов и найденных инструментов.
+
+**Шаг 4. Научи ИИ** — скопируй промпт кнопкой в разделе «Промпт для ИИ» и вставь его в чат. ИИ получает блок `execute-mcp`:
+
+````
+```execute-mcp
+{"server": "blender", "tool": "create_cube", "arguments": {"size": 2}}
+```
+````
+
+Имя сервера — из `server/mcp_servers.json`, `tool` — точное имя инструмента из списка в настройках.
 
 Все нестабильные и новые функции живут именно в разделе «Экспериментальное» — со временем они могут переехать в обычные разделы или исчезнуть.
 
@@ -441,7 +451,7 @@ powershell -ExecutionPolicy Bypass -File tools/shot.ps1   # → tools/shots/*.pn
 ```bash
 cd tests
 npm install          # один раз (jsdom)
-npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (537 проверок)
+npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (563 проверки)
 npm run test:server  # Python: сервер (87 проверок)
 npm run test:all     # всё вместе
 ```
