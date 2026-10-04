@@ -277,6 +277,28 @@ view C:\Users\me\screenshot.png
 
 > 🔀 Среду выполнения можно переключить: список прямо на панели под блоком + в окне подтверждения (shell / powershell / python / node). ИИ задаёт начальное значение языком блока, последнее слово — за тобой. Выбор запоминается для каждой команды и переживает перерисовки чата и перезагрузку вкладки.
 
+## 🧩 Блок `execute-mcp` — MCP прямо из чата (v2.8.0)
+
+В 2.7.0 MCP работал только на бэкенде: сервер поднимал MCP-серверы и отдавал
+инструменты, но ИИ в чате не мог ими воспользоваться. Теперь может:
+
+````
+```execute-mcp
+{"server": "blender", "tool": "create_cube", "arguments": {"size": 2}}
+```
+````
+
+- **Детектор** понимает `execute-mcp`, `execute:mcp`, `mcp-execute` → среда `mcp`
+- **Ответ MCP** приводится к тому же виду, что у `/run`, поэтому работают панель,
+  чат, журнал и автопилот — отдельной ветки в интерфейсе не появилось
+- **Промпт обновлён** (`prompt.js` и `SYSTEM_PROMPT.md`): формат блока, правило
+  «не выдумывать имена серверов и инструментов», предупреждение перед вызовами,
+  которые меняют проект
+- Разбор JSON с понятными ошибками: мусор, отсутствие `server` или `tool`,
+  `arguments` не-объект — всё объясняется человеческим текстом
+
+---
+
 ## 🤖 MCP: Godot, Blender и другие MCP-серверы (v2.7.0)
 
 Экспериментальная связка с [Model Context Protocol](https://modelcontextprotocol.io): ИИ в чате получает инструменты
@@ -474,7 +496,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.7.0
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.8.0
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

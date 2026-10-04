@@ -26,7 +26,7 @@ import threading
 import time
 
 PROTOCOL_VERSION = '2024-11-05'
-CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.7.0'}
+CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.8.0'}
 DEFAULT_TIMEOUT = 30.0
 MAX_TOOLS_PER_SERVER = 200
 

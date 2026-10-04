@@ -6,7 +6,7 @@
 #
 # Запуск из корня репозитория:
 #     pwsh -File tools/build-release.ps1
-#     pwsh -File tools/build-release.ps1 -Version 2.7.0
+#     pwsh -File tools/build-release.ps1 -Version 2.8.0
 #
 # Версия берётся из extension/manifest.json, если не задана явно.
 
