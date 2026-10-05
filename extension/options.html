@@ -744,13 +744,23 @@
               <div class="d" id="mcpTools">Нажмите «Проверить серверы», чтобы получить список инструментов.</div>
             </div>
 
-            <div class="field">
-              <div class="row-inline">
-                <button id="mcpReport" class="ax-btn"><svg class="ax-ico"><use href="#i-copy"></use></svg>Скопировать список для ИИ</button>
-                <button id="mcpReportSave" class="ax-btn"><svg class="ax-ico"><use href="#i-download"></use></svg>Сохранить на рабочий стол</button>
-              </div>
-              <div class="d" id="mcpReportNote"></div>
             </div>
+
+          <!-- Список инструментов для ИИ живёт ВНЕ #mcpBox, а не внутри.
+               #mcpBox скрыт переключателем «Включить MCP» (по умолчанию выключен),
+               но отчёт — это справочник для модели, а не вызов инструмента:
+               его нужно иметь возможность получить до включения MCP. Раньше
+               кнопки были внутри скрываемого блока и оставались невидимыми. -->
+          <div class="field">
+            <div class="row-inline"><span class="title">Список инструментов для ИИ</span></div>
+            <div class="d">Модель не знает имён инструментов MCP и выдумывает их — вызов падает.
+              Отчёт даёт ей точные имена, описания, аргументы и готовые блоки
+              <code>execute-mcp</code>. Скопируй его в чат вторым сообщением.</div>
+            <div class="row-inline">
+              <button id="mcpReport" class="ax-btn"><svg class="ax-ico"><use href="#i-copy"></use></svg>Скопировать список для ИИ</button>
+              <button id="mcpReportSave" class="ax-btn"><svg class="ax-ico"><use href="#i-download"></use></svg>Сохранить на рабочий стол</button>
+            </div>
+            <div class="d" id="mcpReportNote"></div>
           </div>
         </div>
       </div>

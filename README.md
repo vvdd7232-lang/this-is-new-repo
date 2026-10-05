@@ -555,7 +555,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.10.2
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.10.3
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

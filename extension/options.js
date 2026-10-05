@@ -772,8 +772,11 @@ async function mcpReloadConfig() {
 // Отчёт по инструментам для ИИ: точные имена, описания, аргументы и готовые
 // блоки execute-mcp. Без него модель выдумывает «blender.create_cube» вместо
 // настоящего имени инструмента — и вызов падает.
+//
+// Здесь НЕТ проверки updateMcpBox(): отчёт — справочная информация для модели,
+// а не вызов инструмента, поэтому он нужен и при выключенном MCP. Раньше такая
+// проверка была, и при mcpEnabled=false кнопка молча ничего не делала.
 async function mcpReport(save) {
-  if (!updateMcpBox()) return;
   const note = $('mcpReportNote');
   if (note) note.textContent = save ? 'Формирую отчёт и сохраняю…' : 'Формирую отчёт…';
   const resp = await mcpSend({ type: 'AX_MCP_REPORT', payload: { save: !!save } });

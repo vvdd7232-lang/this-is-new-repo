@@ -225,6 +225,30 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
   check('в отчёте есть готовый блок execute-mcp',
     /lines\.append\('```execute-mcp'\)/.test(srvPy));
 
+  // Регрессия: кнопки отчёта стояли ВНУТРИ #mcpBox, который скрыт переключателем
+  // «Включить MCP». При mcpEnabled=false (значение по умолчанию) блок скрыт, и
+  // кнопок не было видно вообще. Проверка выше смотрела только на наличие id в
+  // разметке — и потому этот случай пропускала.
+  const mcpBoxAt = optHtml.indexOf('<div id="mcpBox"');
+  const reportAt = optHtml.indexOf('id="mcpReport"');
+  // Ищем закрывающий </div> блока #mcpBox: идём от его открытия, пока глубина
+  // вложенных <div> не вернётся к нулю. Кнопка после этой позиции — снаружи.
+  let depth = 0;
+  let mcpBoxEndAt = -1;
+  for (let i = mcpBoxAt; i !== -1 && i < optHtml.length; i++) {
+    if (optHtml.startsWith('<div', i)) depth++;
+    else if (optHtml.startsWith('</div>', i)) {
+      depth--;
+      if (depth === 0) { mcpBoxEndAt = i; break; }
+    }
+  }
+  check('кнопки отчёта находятся ВНЕ скрываемого блока #mcpBox',
+    mcpBoxAt !== -1 && mcpBoxEndAt !== -1 && reportAt > mcpBoxEndAt);
+  check('отчёт не зависит от переключателя MCP (нет проверки updateMcpBox)',
+    !/async function mcpReport\(save\)\s*\{\s*if \(!updateMcpBox\(\)\)/.test(optJs));
+  check('поле статуса отчёта тоже вне #mcpBox',
+    optHtml.indexOf('id="mcpReportNote"') > mcpBoxEndAt);
+
   // ---------- 8. Протокол ----------
   console.log('\n[8] MCP-клиент реализует протокол');
   const mcpPy = readRoot(path.join('server', 'mcp_client.py'));
