@@ -41,7 +41,7 @@ ai-execute-extension/
 │   └── icons/
 ├── server/
 │   ├── server.py         ← локальный выполнитель (Python, без зависимостей)
-│   ├── mcp_client.py     ← MCP-клиент: stdio-серверы, tools/list, tools/call (экспериментально)
+│   ├── mcp_client.py     ← MCP-клиент: stdio и Streamable HTTP, tools/list, tools/call (экспериментально)
 │   └── mcp_servers.json  ← список MCP-серверов (из коробки всё выключено)
 ├── tests/                ← автотесты (Node + Python)
 │   ├── sniff-runner.test.js   ← сниффер языка + опасные паттерны (114 проверок)
@@ -143,7 +143,13 @@ python server.py --whitelist whitelist.txt
 
 Подключает внешние MCP-серверы, чтобы ИИ в чате мог пользоваться их инструментами (создать объект в Blender, управлять сценой в Godot, читать файлы и т.п.).
 
-**Почему это делает сервер, а не расширение.** MCP-серверы работают через stdio — это отдельные процессы, которые говорят JSON-RPC через stdin/stdout. Браузер запускать процессы не умеет в принципе, поэтому посредником служит `server.py`: он поднимает MCP-серверы как subprocess и отдаёт расширению только HTTP.
+**Почему это делает сервер, а не расширение.** MCP-серверы работают либо как локальные процессы через stdio (JSON-RPC в stdin/stdout), либо как удалённые HTTP-эндпоинты. Браузер ни то, ни другое не умеет — поэтому посредником служит `server.py`: он поднимает процессы, ходит по HTTP и отдаёт расширению только результат.
+
+**Транспорты.** Поддерживаются оба:
+- `stdio` — `command` + `args`, локальный процесс;
+- `Streamable HTTP` — `type: "http"` + `url`, удалённый сервер (Context7, Notion, Zapier). Ответы понимаются и как JSON, и как поток SSE, сессия запоминается автоматически.
+
+OAuth-логин не реализован: для Zapier/Notion/Atlassian нужен готовый статический токен в `headers`. Готовые записи для файлов, поиска, памяти, браузера и интеграций — в **[docs/mcp-servers.md](docs/mcp-servers.md)**. В поставляемый конфиг они **намеренно не добавлены**: включать процессы и ходить в интернет должно быть осознанным решением пользователя.
 
 **Шаг 1. Опиши серверы** в `server/mcp_servers.json`:
 
@@ -557,7 +563,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.10.4
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.10.5
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

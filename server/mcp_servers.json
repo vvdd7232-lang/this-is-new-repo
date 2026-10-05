@@ -1,23 +1,23 @@
 {
-  "_comment": "MCP-серверы для AI Execute Runner (экспериментально). Браузер не умеет запускать процессы, поэтому эти команды запускает локальный сервер. Включите сервер с флагом --mcp (или ответьте «да» на вопрос при запуске) и переведите нужные серверы в enabled: true. Поддерживается только stdio-транспорт. При запуске без флага сервер спросит, включать ли MCP, — выбор действует только на текущий запуск и этот файл не меняет.",
+  "_comment": "MCP-серверы для AI Execute Runner (экспериментально). Браузер не умеет запускать процессы, поэтому эти команды запускает локальный сервер. Включите сервер с флагом --mcp (или ответьте «да» на вопрос при запуске) и переведите нужные серверы в enabled: true. Поддерживаются stdio и HTTP (Streamable HTTP) транспорты — готовые записи серверов в docs/mcp-servers.md. При запуске без флага сервер спросит, включать ли MCP, — выбор действует только на текущий запуск и этот файл не меняет.",
   "servers": [
     {
       "name": "blender",
       "command": "uvx",
       "args": ["blender-mcp"],
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "godot",
       "command": "npx",
       "args": ["-y", "godot-mcp"],
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "filesystem",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\minecraft\\Desktop"],
-      "enabled": false
+      "enabled": true
     }
   ]
 }

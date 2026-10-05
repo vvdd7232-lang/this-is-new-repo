@@ -13,9 +13,18 @@ server.py — он и так локальный, и так уже выполня
   3. даёт вызвать инструмент (tools/call) и отдаёт результат.
 
 Ограничения (осознанные, в UI помечены как «экспериментально»):
-  * только stdio-серверы — процесс запускается локально, как просит конфиг;
-  * HTTP/Streamable-HTTP транспорт не поддерживается;
+  * поддерживаются два транспорта:
+      - stdio — локальный процесс (filesystem, playwright, git, brave-search);
+      - http — Streamable HTTP для удалённых серверов (context7, zapier,
+        notion, atlassian). Ничего ставить не нужно, но нужен доступ в сеть.
+  * OAuth-авторизация (Zapier, Notion, Atlassian) НЕ реализована: работают
+    только серверы, которым хватает статического токена в заголовке.
   * сервер держится живым между вызовами; если упал — поднимется заново.
+
+Список конкретных серверов с командами — в docs/mcp-servers.md. В
+server/mcp_servers.json они намеренно НЕ прописаны: включение должно быть
+осознанным, иначе расширение при первом же запуске начнёт поднимать
+процессы и ходить в интернет без спроса.
 """
 
 import json
@@ -25,9 +34,11 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 
 PROTOCOL_VERSION = '2024-11-05'
-CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.10.4'}
+CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.10.5'}
 DEFAULT_TIMEOUT = 30.0
 MAX_TOOLS_PER_SERVER = 200
 # Потолок одной строки от MCP-сервера и глубина очереди сообщений. Без них
@@ -63,6 +74,10 @@ class McpServerClient:
         self.cwd = cwd
         self.timeout = timeout
         self.enabled = enabled
+        # Единый интерфейс с McpHttpClient: реестру и UI неважно, stdio это
+        # или удалённый сервер.
+        self.transport = 'stdio'
+        self.url = ''
         self.proc = None
         self.next_id = 1
         self.server_info = {}
@@ -280,7 +295,6 @@ class McpServerClient:
         self.server_info = result.get('serverInfo', {}) or {}
         self.capabilities = result.get('capabilities', {}) or {}
         return result
-
     def handshake(self):
         """initialize + notifications/initialized. Идемпотентно."""
         if not self.is_running():
@@ -314,6 +328,212 @@ class McpServerClient:
         return self.request('tools/call', {'name': name, 'arguments': arguments or {}}, timeout)
 
 
+# Максимальный ответ HTTP-сервера. Список инструментов Notion/Atlassian бывает
+# крупным, но мегабайты — уже не сервер, а случайность.
+HTTP_MAX_BYTES = 32 * 1024 * 1024
+
+
+class McpHttpClient:
+    """Удалённый MCP-сервер: JSON-RPC 2.0 поверх Streamable HTTP.
+
+    Зачем он здесь
+    --------------
+    Часть MCP-серверов (Context7, Zapier, Notion, Atlassian) не существует
+    как локальный пакет: это удалённые HTTP-эндпоинты. Ничего ставить не
+    нужно, но нужен доступ в сеть — из браузера это сделать нельзя.
+
+    Интерфейс намеренно совпадает с McpServerClient (request/notify/start/
+    stop/handshake/list_tools/call_tool), поэтому Registry, server.py и UI о
+    транспорте ничего не знают.
+
+    Особенности протокола, которые здесь учтены:
+      * ответ приходит либо application/json, либо потоком SSE
+        (text/event-stream) — разбираем оба;
+      * сервер выдаёт Mcp-Session-Id, его надо возвращать в следующих
+        запросах; серверы без сессий его просто не присылают;
+      * POST с уведомлением (без id) ждёт 202 Accepted с пустым телом —
+        ответного сообщения там не бывает.
+
+    Ограничение: OAuth-логин (Zapier/Notion/Atlassian) не реализован, нужен
+    готовый статический токен в заголовке из конфига.
+    """
+
+    def __init__(self, name, url, headers=None, timeout=DEFAULT_TIMEOUT,
+                 enabled=True):
+        self.name = name
+        self.url = url
+        self.headers = dict(headers or {})
+        self.timeout = timeout
+        self.enabled = enabled
+        self.transport = 'http'
+        self.command = ''          # для общего интерфейса с UI
+        self.args = []
+        self.env = {}
+        self.cwd = None
+        self.next_id = 1
+        self.server_info = {}
+        self.capabilities = {}
+        self.last_error = ''
+        self._lock = threading.Lock()       # запросы строго по одному
+        self._session_id = ''
+        self._ready = False
+
+    # ---------- жизненный цикл ----------
+    def is_running(self):
+        # Процесса нет: «жив» сервер ровно настолько, насколько отвечает.
+        # Для UI достаточно — статус «работает» появляется после initialize.
+        return self._ready
+
+    def stop(self):
+        with self._lock:
+            self._ready = False
+            self._session_id = ''
+
+    def start(self):
+        """У HTTP-транспорта поднимать нечего."""
+        return
+
+    # ---------- транспорт ----------
+    def _base_headers(self):
+        head = {
+            'Content-Type': 'application/json',
+            # Streamable HTTP требует оба типа в Accept: сервер сам решает,
+            # прислать JSON или SSE-поток.
+            'Accept': 'application/json, text/event-stream',
+        }
+        if self._session_id:
+            head['Mcp-Session-Id'] = self._session_id
+        head.update(self.headers)
+        return head
+
+    @staticmethod
+    def _parse_sse(body):
+        """Достаёт JSON-RPC-сообщения из потока SSE.
+
+        Формат: строки «data: {...}», между событиями пустая строка. Нас
+        интересует сообщение с 'id' — это и есть ответ на наш запрос.
+        """
+        result = None
+        for raw in body.splitlines():
+            line = raw.strip()
+            if not line.startswith('data:'):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == '[DONE]':
+                continue
+            try:
+                msg = json.loads(payload)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get('id') is not None:
+                result = msg
+        return result
+
+    def _post(self, payload, timeout):
+        body = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(self.url, data=body, method='POST',
+                                     headers=self._base_headers())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read(HTTP_MAX_BYTES + 1)
+                session = (resp.headers.get('Mcp-Session-Id')
+                           or resp.headers.get('mcp-session-id'))
+                if session and not self._session_id:
+                    self._session_id = session.strip()
+                ctype = (resp.headers.get('Content-Type') or '').lower()
+        except urllib.error.HTTPError as e:
+            detail = ''
+            try:
+                detail = e.read(2048).decode('utf-8', 'replace').strip()
+            except Exception:
+                pass
+            if e.code in (401, 403):
+                raise McpError('%s: сервер отклонил доступ (%d) — нужен верный токен '
+                               'в headers конфига, OAuth-логина пока нет' % (self.name, e.code))
+            raise McpError('%s: HTTP %d%s' % (self.name, e.code,
+                                              (': ' + detail[:200]) if detail else ''))
+        except urllib.error.URLError as e:
+            raise McpError('%s: не удалось соединиться: %s' % (self.name, e.reason))
+        except Exception as e:  # noqa: BLE001 — сеть умеет удивлять
+            raise McpError('%s: %s' % (self.name, e))
+
+        if len(raw) > HTTP_MAX_BYTES:
+            raise McpError('%s: ответ слишком большой (больше %d МБ)'
+                           % (self.name, HTTP_MAX_BYTES // 1048576))
+        text = raw.decode('utf-8', 'replace').strip()
+        if not text:
+            return None                      # уведомление: 202 Accepted без тела
+        if 'text/event-stream' in ctype or text.startswith('event:') or text.startswith('data:'):
+            return self._parse_sse(text)
+        try:
+            return json.loads(text)
+        except ValueError:
+            # Часть серверов отдаёт SSE, забыв про Content-Type.
+            parsed = self._parse_sse(text)
+            if parsed is not None:
+                return parsed
+            raise McpError('%s: не понял ответ сервера' % self.name)
+
+    # ---------- MCP ----------
+    def request(self, method, params=None, timeout=None):
+        with self._lock:
+            message = {'jsonrpc': '2.0', 'id': self.next_id, 'method': method}
+            self.next_id += 1
+            if params is not None:
+                message['params'] = params
+            data = self._post(message, timeout or self.timeout)
+        if data is None:
+            raise McpError('%s: сервер не вернул ответ на %s' % (self.name, method))
+        if data.get('error'):
+            err = data['error']
+            msg = err.get('message') if isinstance(err, dict) else str(err)
+            raise McpError(str(msg))
+        return data.get('result', {})
+
+    def notify(self, method, params=None):
+        with self._lock:
+            message = {'jsonrpc': '2.0', 'method': method}
+            if params is not None:
+                message['params'] = params
+            try:
+                self._post(message, self.timeout)
+            except McpError:
+                pass  # не все серверы ждут это уведомление
+
+    def initialize(self):
+        result = self.request('initialize', {
+            'protocolVersion': PROTOCOL_VERSION,
+            'capabilities': {},
+            'clientInfo': CLIENT_INFO,
+        })
+        self.server_info = result.get('serverInfo', {}) or {}
+        self.capabilities = result.get('capabilities', {}) or {}
+        return result
+
+    def handshake(self):
+        """initialize + notifications/initialized. Идемпотентно."""
+        if self._ready and self.server_info:
+            return
+        self.initialize()
+        self.notify('notifications/initialized')
+        self._ready = True
+
+    def list_tools(self):
+        self.handshake()
+        tools = []
+        result = self.request('tools/list', {})
+        tools.extend(result.get('tools', []) or [])
+        cursor = result.get('nextCursor')
+        while cursor and len(tools) < MAX_TOOLS_PER_SERVER:
+            result = self.request('tools/list', {'cursor': cursor})
+            tools.extend(result.get('tools', []) or [])
+            cursor = result.get('nextCursor')
+        return tools[:MAX_TOOLS_PER_SERVER]
+
+    def call_tool(self, name, arguments=None, timeout=None):
+        self.handshake()
+        return self.request('tools/call', {'name': name, 'arguments': arguments or {}}, timeout)
+
 DEFAULT_CONFIG = """{
   "servers": [
     { "name": "blender", "command": "uvx", "args": ["blender-mcp"], "enabled": false },
@@ -341,8 +561,36 @@ def load_config(path):
         if not isinstance(entry, dict):
             continue
         name = str(entry.get('name') or '').strip()
+        if not name:
+            continue
+        # Транспорт выбирается по полю type, но если type не указан, а есть url —
+        # считаем это http. Так коротче и нельзя ошибиться, забыв type.
+        transport = str(entry.get('type') or '').strip().lower()
+        url = str(entry.get('url') or '').strip()
         command = str(entry.get('command') or '').strip()
-        if not name or not command:
+        if not transport:
+            transport = 'http' if url else 'stdio'
+        timeout = float(entry.get('timeout') or DEFAULT_TIMEOUT)
+        enabled = bool(entry.get('enabled', True))
+        if transport == 'http':
+            if not url:
+                raise McpError('сервер «%s»: транспорт http требует "url"' % name)
+            if not url.lower().startswith(('http://', 'https://')):
+                raise McpError('сервер «%s»: url должен начинаться с http:// или https://' % name)
+            raw_headers = entry.get('headers') if isinstance(entry.get('headers'), dict) else {}
+            headers = {str(k): str(v) for k, v in raw_headers.items()}
+            # Не даём из конфига переписать технические заголовки протокола:
+            # сломанный Accept или Content-Type ломает обмен целиком.
+            for reserved in ('content-type', 'accept', 'host'):
+                headers.pop(reserved, None)
+                for k in [h for h in headers if h.lower() == reserved]:
+                    headers.pop(k, None)
+            servers.append(McpHttpClient(
+                name=name, url=url, headers=headers,
+                timeout=timeout, enabled=enabled,
+            ))
+            continue
+        if not command:
             continue
         raw_env = entry.get('env') if isinstance(entry.get('env'), dict) else {}
         servers.append(McpServerClient(
@@ -350,8 +598,8 @@ def load_config(path):
             args=[str(a) for a in (entry.get('args') or [])],
             env={str(k): str(v) for k, v in raw_env.items()},
             cwd=str(entry['cwd']) if entry.get('cwd') else None,
-            timeout=float(entry.get('timeout') or DEFAULT_TIMEOUT),
-            enabled=bool(entry.get('enabled', True)),
+            timeout=timeout,
+            enabled=enabled,
         ))
     return servers
 
@@ -393,6 +641,10 @@ class Registry:
                 'name': name,
                 'command': client.command,
                 'args': client.args,
+                # Транспорт и адрес нужны UI: у HTTP-сервера нет команды,
+                # и без этого он выглядел бы «пустым» и сбивал с толку.
+                'transport': getattr(client, 'transport', 'stdio'),
+                'url': getattr(client, 'url', ''),
                 'enabled': client.enabled,
                 'running': client.is_running(),
                 'error': self.errors.get(name, ''),
