@@ -173,16 +173,20 @@
   };
 
   // --- детектор поля ввода чата ---
+  // В селекторах учтён contenteditable="plaintext-only": его ставят редакторы
+  // на contenteditable без форматирования (ProseMirror, TipTap, новые сборки
+  // ChatGPT). Раньше в списке был только ="true", поэтому поле ввода на таком
+  // сайте вообще не находилось. isChatInputCandidate этот случай уже считал.
   AX.CHAT_INPUT_TIERS = [
     { site: 'DeepSeek',        sel: 'textarea[name="search"]' },
     { site: 'ChatGPT',         sel: 'textarea#prompt-textarea' },
-    { site: 'ChatGPT',         sel: 'div#prompt-textarea[contenteditable="true"]' },
-    { site: 'Claude',          sel: 'div.ProseMirror[contenteditable="true"]' },
+    { site: 'ChatGPT',         sel: 'div#prompt-textarea[contenteditable="true"], div#prompt-textarea[contenteditable="plaintext-only"]' },
+    { site: 'Claude',          sel: 'div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="plaintext-only"]' },
     { site: 'Gemini',          sel: 'rich-textarea textarea' },
     { site: 'Copilot',         sel: 'textarea[data-testid="user-input"], #user-input-textbox' },
-    { site: 'contenteditable', sel: 'div[contenteditable="true"][role="textbox"]' },
+    { site: 'contenteditable', sel: 'div[contenteditable="true"][role="textbox"], div[contenteditable="plaintext-only"][role="textbox"]' },
     { site: 'textarea',        sel: 'textarea[placeholder]' },
-    { site: 'contenteditable', sel: 'div[contenteditable="true"]' },
+    { site: 'contenteditable', sel: 'div[contenteditable="true"], div[contenteditable="plaintext-only"]' },
     { site: 'textarea',        sel: 'textarea' },
   ];
   const AX_OWN_SEL = '.ax-exec-panel, .ax-modal, .ax-toast, .ax-view-wrap';

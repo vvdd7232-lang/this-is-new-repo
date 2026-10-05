@@ -1,4 +1,4 @@
-﻿/* Тесты детектора поля ввода чата и вставки картинки (view).
+/* Тесты детектора поля ввода чата и вставки картинки (view).
  *
  * Загружают НАСТОЯЩИЙ extension/content.js в jsdom с минимальными заглушками
  * WebExtension API и проверяют:
@@ -132,6 +132,18 @@ function installBrowserShims(window) {
       this.dataTransfer = init.dataTransfer || null;
     }
   };
+
+  // 6) DragEvent: jsdom его не реализует, а drop-шаг вставки без него
+  //    отвалился бы с ReferenceError и тихо ушёл бы к буферу обмена.
+  window.DragEvent = class DragEvent extends window.Event {
+    constructor(type, init) {
+      super(type, init);
+      init = init || {};
+      this.dataTransfer = init.dataTransfer || null;
+      this.clientX = init.clientX || 0;
+      this.clientY = init.clientY || 0;
+    }
+  };
 }
 
 function makeDom(html, opts) {
@@ -192,6 +204,11 @@ function makeDom(html, opts) {
   if (typeof window.__axDiag !== 'function') {
     throw new Error('content.js не инициализировался: нет window.__axDiag');
   }
+  // Ускоряем ожидания вставки: без этого каждый неуспешный шаг (file-input,
+  // drop, paste, execCommand) ждал бы полные секунды, и прогон занимал бы
+  // около минуты. На результат проверок это не влияет — тесты всё равно
+  // ждут мутации DOM или истечения таймаута.
+  if (window.AX) window.AX.__viewWait = 0.15;
   const env = { dom, window, toasts };
   createdEnvs.push(env);
   return env;
@@ -462,6 +479,102 @@ console.log('\n[15] Arena: картинка уходит в paste-путь (onPa
   check('тост сообщает о вставке', /вставлена в чат/i.test(lastToast(env)), lastToast(env));
 }
 
+console.log('\n[13] contenteditable="plaintext-only": поле находится (регресс)');
+{
+  // Раньше в CHAT_INPUT_TIERS стоял только [contenteditable="true"], поэтому
+  // редактор на plaintext-only вообще не находился как поле ввода.
+  const env = makeDom(
+    '<form id="composer">' +
+    '  <div id="prompt-textarea" contenteditable="plaintext-only" role="textbox" data-rect="100,600,800,40"></div>' +
+    '</form>'
+  );
+  const { window } = env;
+  const found = window.AX.findChatInputDetailed();
+  check('поле нашлось', !!found.el, window.AX.describeChatInput(found));
+  check('найдено именно contenteditable-редактор', found.site === 'contenteditable' || found.site === 'ChatGPT', found.site);
+  // Важно не значение isContentEditable (jsdom для «plaintext-only» его не
+  // считает), а то, что поле подходит для вставки. Проверяем шагом drop.
+  let dropped = 0;
+  window.document.getElementById('composer').addEventListener('drop', () => {
+    dropped++;
+    const chip = window.document.createElement('div');
+    chip.className = 'attachment-chip';
+    window.document.getElementById('composer').appendChild(chip);
+  });
+  const ok = await window.__axDiag.insertView({
+    data_url: PNG_DATA_URL, mime: 'image/png', size: 68, path: 'editor.png',
+  });
+  check('вставка в plaintext-only сработала', ok === true, ok);
+  check('drop услышан композером', dropped > 0, dropped);
+}
+
+console.log('\n[14] drop-событие вставляет картинку, когда input[type=file] нет (регресс)');
+{
+  const env = makeDom(
+    '<form id="composer">' +
+    '  <textarea name="search" data-rect="100,600,800,40"></textarea>' +
+    '</form>'
+  );
+  const { window } = env;
+  const composer = window.document.getElementById('composer');
+  let dropped = 0;
+  composer.addEventListener('drop', (e) => {
+    dropped++;
+    const chip = window.document.createElement('div');
+    chip.className = 'attachment-chip';
+    composer.appendChild(chip);
+  });
+  const ok = await window.__axDiag.insertView({
+    data_url: PNG_DATA_URL, mime: 'image/png', size: 68, path: 'C:\\\\Users\\\\me\\\\screen.png',
+  });
+  check('drop-событие было отправлено', dropped > 0, dropped);
+  check('вставка вернула true', ok === true, ok);
+  check('чип превью появился', !!window.document.querySelector('.attachment-chip'));
+  check('тост сообщает о вставке', /вставлена в чат/i.test(lastToast(env)), lastToast(env));
+}
+
+console.log('\n[15] Перебор input[type=file]: первый молчит, второй работает (регресс)');
+{
+  const env = makeDom(
+    '<form id="composer">' +
+    '  <textarea name="search" data-rect="100,600,800,40"></textarea>' +
+    '</form>' +
+    '<input type="file" id="uploaderA" accept="image/*" multiple>' +
+    '<div id="other"><input type="file" id="uploaderB" accept="image/*" multiple></div>'
+  );
+  const { window } = env;
+  const a = window.document.getElementById('uploaderA');
+  const b = window.document.getElementById('uploaderB');
+  // Первый кандидат найдётся раньше (порядок документа) и промолчит —
+  // так и было: брался только один «лучший» инпут, и вставка падала.
+  let bChanges = 0;
+  b.addEventListener('change', () => {
+    bChanges++;
+    // Чип рисуем в композере: подтверждение вставки ждёт появления вложения
+    // именно в области поля ввода, а не где попало на странице.
+    const chip = window.document.createElement('div');
+    chip.className = 'attachment-chip';
+    window.document.getElementById('composer').appendChild(chip);
+  });
+  const ok = await window.__axDiag.insertView({
+    data_url: PNG_DATA_URL, mime: 'image/png', size: 68, path: 'C:\\\\Users\\\\me\\\\screen.png',
+  });
+  check('второй инпут получил change', bChanges >= 1, bChanges);
+  check('вставка вернула true', ok === true, ok);
+  check('чип превью появился', !!window.document.querySelector('.attachment-chip'));
+}
+
+console.log('\n[16] Шаг drop описан в коде до буфера обмена (регресс)');
+{
+  const viewSrc = fs.readFileSync(path.join(EXT_DIR, 'ax-view.js'), 'utf8');
+  check('есть функция tryDropImage', /function tryDropImage/.test(viewSrc));
+  check('drop вызывается в insertImageIntoChat', /await tryDropImage\(/.test(viewSrc));
+  check('drop расположен раньше copyImageToClipboard в вызове',
+    viewSrc.indexOf('await tryDropImage(') < viewSrc.indexOf('await copyImageToClipboard('));
+  check('есть перебор всех file-инпутов', /function findUploadFileInputs/.test(viewSrc));
+  check('isCE учитывает plaintext-only',
+    /ceAttr !== 'false'/.test(viewSrc) && !/getAttribute\('contenteditable'\) === 'true'/.test(viewSrc));
+}
 console.log('\n' + '='.repeat(54));
 console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
 if (failed) {

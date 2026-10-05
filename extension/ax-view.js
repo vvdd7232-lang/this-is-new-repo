@@ -52,9 +52,9 @@
     return new File([blob], base + '.' + ext, { type: blob.type || mime });
   }
 
-  function findUploadFileInput(input) {
+  function findUploadFileInputs(input) {
     const all = AX.deepQueryAll('input[type="file"]', AX.collectShadowRoots());
-    let best = null, bestScore = -1;
+    const scored = [];
     for (const fi of all) {
       if (AX.isOurNode(fi) || fi.disabled) continue;
       const accept = (fi.getAttribute('accept') || '').toLowerCase();
@@ -67,9 +67,18 @@
           if (host && (host.contains(fi) || (host.parentElement && host.parentElement.contains(fi)))) score += 6;
         }
       } catch (e) { /* ignore */ }
-      if (score > bestScore) { best = fi; bestScore = score; }
+      scored.push({ fi, score });
     }
-    return best;
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map((s) => s.fi);
+  }
+
+  // Раньше возвращался только один «лучший» input[type=file]. Если он по
+  // какой-то причине не срабатывал (например, это был инпут другого блока
+  // страницы с тем же accept), вставка падала, хотя рядом мог лежать рабочий.
+  function findUploadFileInput(input) {
+    const list = findUploadFileInputs(input);
+    return list.length ? list[0] : null;
   }
 
   function composerScope(input) {
@@ -84,6 +93,15 @@
   }
 
   // Ждём реального изменения DOM. Вызывать ДО отправки события.
+  // Множитель таймаутов ожидания. В проде = 1. Тесты выставляют 0.05, иначе
+  // каждый неуспешный шаг вставки ждал бы полные секунды и прогон занимал
+  // бы около минуты вместо нескольких.
+  function waitMs(base) {
+    try {
+      const k = (typeof AX !== 'undefined' && AX.__viewWait) || 1;
+      return Math.max(20, Math.round(base * k));
+    } catch (e) { return base; }
+  }
   function waitForAttachment(scope, ms) {
     const limit = ms || 2000;
     let cancelFn = null;
@@ -127,7 +145,7 @@
     } catch (e) { return Promise.resolve({ ok: false, why: 'ClipboardEvent: ' + e }); }
     const roundTrip = !!(ev.clipboardData && ev.clipboardData.items && ev.clipboardData.items.length);
     if (!roundTrip) return Promise.resolve({ ok: false, why: 'браузер не пробросил clipboardData' });
-    const wait = waitForAttachment(scope, 1500);
+    const wait = waitForAttachment(scope, waitMs(1500));
     input.dispatchEvent(ev);
     try {
       input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertFromPaste', dataTransfer: dt }));
@@ -136,13 +154,65 @@
     return wait.then((ok) => ({ ok, why: ok ? '' : 'событие отправлено, но DOM не изменился' }));
   }
 
+  // Шаг вставки через drop-событие — то, как на самом деле работает
+  // перетаскивание файла в чат. Многие сайты (DeepSeek, ChatGPT, Claude)
+  // больше не отзываются на синтетический change у скрытого input[type=file],
+  // но продолжают слушать dragover/drop на композере. Без этого шага вставка
+  // падала в буфер обмена, а он тоже мог быть недоступен.
+  function tryDropImage(input, file, scope) {
+    // DragEvent есть не везде (и точно нет в headless-окружениях). Без этой
+    // проверки код падал в ReferenceError, который глушился catch, и шаг
+    // молча превращался в пустой — как раз тот случай, когда вставка не
+    // срабатывала нигде.
+    const DragCtor = (typeof DragEvent !== 'undefined' && DragEvent) ||
+      (typeof window !== 'undefined' && window.DragEvent) || null;
+    if (!DragCtor) return Promise.resolve({ ok: false, why: 'DragEvent недоступен' });
+    let dt = null;
+    try {
+      dt = new DataTransfer();
+      dt.items.add(file);
+    } catch (e) { return Promise.resolve({ ok: false, why: 'DataTransfer: ' + e }); }
+    // Только композер и его ближайшие обёртки. document.body намеренно НЕ
+    // трогаем: drop по всему документу ловит вкладка/файловое окно и лишние
+    // обработчики сайта, а в тестовом окружении это вообще вешало прогон.
+    const targets = [];
+    try {
+      if (input) targets.push(input);
+      let el = input;
+      for (let i = 0; i < 3 && el && el.parentElement; i++) { el = el.parentElement; targets.push(el); }
+      if (scope && scope.nodeType === 1 && targets.indexOf(scope) === -1) targets.push(scope);
+    } catch (e) { /* ignore */ }
+    if (!targets.length) return Promise.resolve({ ok: false, why: 'нет целей для drop' });
+    const wait = waitForAttachment(scope, waitMs(2000));
+    try {
+      for (const t of targets) {
+        try {
+          let x = 0, y = 0;
+          try {
+            const rc = t.getBoundingClientRect();
+            if (rc) { x = Math.round(rc.left + rc.width / 2); y = Math.round(rc.top + rc.height / 2); }
+          } catch (e) { /* геометрия не обязательна */ }
+          const init = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y };
+          t.dispatchEvent(new DragCtor('dragenter', init));
+          t.dispatchEvent(new DragCtor('dragover', init));
+          t.dispatchEvent(new DragCtor('drop', init));
+        } catch (e) { /* один не сработал — пробуем следующий */ }
+      }
+    } catch (e) { return Promise.resolve({ ok: false, why: 'drop: ' + e }); }
+    // Страховка от зависания: waitForAttachment имеет свой таймаут, но если он
+    // по какой-то причине не сработает, вставка не должна вставать колом.
+    const guard = new Promise((res) => setTimeout(() => res(false), waitMs(3000)));
+    return Promise.race([wait, guard])
+      .then((ok) => ({ ok: !!ok, why: ok ? '' : 'drop отправлен, но DOM не изменился' }));
+  }
+
   function tryExecInsertImage(input, dataUrl, scope) {
     try {
       if (document.queryCommandSupported && !document.queryCommandSupported('insertImage')) {
         return Promise.resolve({ ok: false, why: 'insertImage не поддерживается браузером' });
       }
     } catch (e) { /* ignore */ }
-    const wait = waitForAttachment(scope, 1500);
+    const wait = waitForAttachment(scope, waitMs(1500));
     try {
       if (!document.execCommand('insertImage', false, dataUrl)) {
         wait.cancel && wait.cancel();
@@ -215,14 +285,27 @@
     say('\u0444\u0430\u0439\u043B: ' + file.name + ' | ' + file.type + ' | ' + file.size + ' B');
     try { input.focus({ preventScroll: true }); } catch (e) { try { input.focus(); } catch (e2) { /* ignore */ } }
     const scope = composerScope(input);
-    const isCE = !!input.isContentEditable || input.getAttribute('contenteditable') === 'true';
+    // contenteditable="plaintext-only" — полноценный редактор без
+    // форматирования (ProseMirror, TipTap, новые сборки чатов). Прежняя
+    // проверка требовала ровно "true", считала такое поле нередактируемым,
+    // и шаги с paste/execCommand молча пропускались.
+    const ceAttr = input.getAttribute ? input.getAttribute('contenteditable') : null;
+    const isCE = !!input.isContentEditable || (!!ceAttr && ceAttr !== 'false');
     diag.isContentEditable = isCE;
 
     // Шаг 1: скрытый input[type=file] композера (DeepSeek / ChatGPT / Claude)
+// Полный список кандидатов — по нему работает запасной перебор ниже.
+    const fileInputsList = findUploadFileInputs(input);
+    // Файл кладут в инпут, но сайт может не отреагировать. Раньше наличие
+    // fi.files тут же считалось успехом и возвращало true — но это наше же
+    // присвоенное значение, а не доказательство, что чат принял картинку.
+    // Теперь запоминаем факт отправки и идём дальше: запасные инпуты, drop,
+    // буфер. Если всё глухо — сообщаем, что файл отправлен.
+    let sentToFileInput = false;
     const fi = findUploadFileInput(input);
     if (fi) {
       try {
-        const wait = waitForAttachment(scope, 2500);
+        const wait = waitForAttachment(scope, waitMs(2500));
         const dt = new DataTransfer();
         dt.items.add(file);
         fi.files = dt.files;
@@ -232,7 +315,7 @@
         diag.fileInput = { accept: fi.getAttribute('accept'), multiple: !!fi.multiple, verified: ok };
         say('file-input: \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D, \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D=' + ok);
         if (ok) { AX.toast('view: \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0430 \u0432 \u0447\u0430\u0442', 3500); return true; }
-        if (fi.files && fi.files.length) { AX.toast('view: \u0444\u0430\u0439\u043B \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D \u0432 \u043F\u043E\u043B\u0435 \u2014 \u043F\u0440\u043E\u0432\u0435\u0440\u044C \u043F\u0440\u0435\u0432\u044C\u044E', 5000); return true; }
+        if (fi.files && fi.files.length) sentToFileInput = true;
       } catch (e) {
         say('file-input \u043E\u0448\u0438\u0431\u043A\u0430: ' + e);
       }
@@ -240,6 +323,33 @@
       say('file-input \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D');
     }
 
+// Шаг 1б: перебор остальных input[type=file]. Шаг 1 пробует только один —
+    // самый «похожий на композер». Если он не сработал (а рядом может лежать
+    // инпут того же чата с тем же accept), раньше вставка просто падала дальше.
+    if (fileInputsList && fileInputsList.length > 1) {
+      for (const alt of fileInputsList.slice(1)) {
+        try {
+          const wait = waitForAttachment(scope, waitMs(1200));
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          alt.files = dt.files;
+          alt.dispatchEvent(new Event('input', { bubbles: true }));
+          alt.dispatchEvent(new Event('change', { bubbles: true }));
+          const ok = await wait;
+          say('file-input (запасной): принят=' + ok);
+          if (ok) { AX.toast('view: картинка вставлена в чат', 3500); return true; }
+        } catch (e) { say('запасной file-input ошибка: ' + e); }
+      }
+    }
+
+    // Шаг 1в: drop-событие — именно так картинка попадает в чат при
+    // перетаскивании. Сайты часто перестают реагировать на синтетический
+    // change у скрытого input[type=file], но продолжают слушать drop на
+    // композере. Шаг идёт для любого типа поля (textarea тоже), поэтому
+    // расположен до paste/execCommand и к буферу обмена.
+    const dr = await tryDropImage(input, file, scope);
+    say('drop: ok=' + dr.ok + (dr.why ? ' (' + dr.why + ')' : ''));
+    if (dr.ok) { AX.toast('view: картинка вставлена в чат', 3500); return true; }
     // Шаг 2: синтетическая вставка (только contenteditable с onPaste)
     if (isCE) {
       const r = await trySyntheticPaste(input, file, scope);
@@ -254,6 +364,14 @@
       const r = await tryExecInsertImage(input, view.data_url, scope);
       say('execCommand insertImage: ok=' + r.ok + (r.why ? ' (' + r.why + ')' : ''));
       if (r.ok) { AX.toast('view: \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0430 \u0432 \u0447\u0430\u0442', 3500); return true; }
+    }
+
+    // Файл дошёл до скрытого input[type=file], но сайт не показал превью.
+    // Сообщаем честно: скорее всего, он подхватит файл позже. Раньше здесь
+    // сразу показывалось «авто-вставка не сработала», хотя файл-то был отправлен.
+    if (sentToFileInput) {
+      AX.toast('view: файл отправлен в композер — проверь превью', 5000);
+      return true;
     }
 
     // Шаг 4: буфер обмена + подсказка Ctrl+V

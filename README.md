@@ -278,7 +278,9 @@ view C:\Users\me\screenshot.png
 
 - сервер читает файл, проверяет что это изображение (по расширению + MIME) и возвращает как `data:` URL
 - расширение показывает **превью прямо под панелью** — можно кликнуть и открыть в новой вкладке
-- картинка **вставляется в поле ввода** через скрытый `input[type=file]` композера (DeepSeek, ChatGPT, Claude) либо через paste-событие, если чат — contenteditable с обработчиком вставки (Arena, Claude)
+- картинка **вставляется в поле ввода** через скрытый `input[type=file]` композера (DeepSeek, ChatGPT, Claude) либо через paste-событие, если чат — contenteditable (Arena, Claude)
+- если первый `input[type=file]` не сработал, перебираются остальные подходящие на странице, затем отправляется **drop-событие** (dragenter/dragover/drop на композере) — именно так картинка попадает в чат перетаскиванием, и именно на этом чаще всего спотыкаются сайты, переставшие отзываться на синтетический `change`
+- поддерживается `contenteditable="plaintext-only"` — так помечают редакторы без форматирования (ProseMirror, TipTap, новые сборки чатов); раньше такое поле вообще не находилось
 - если чат не принял файл автоматически — расширение честно об этом сообщает, а под превью появляется кнопка **🖼 Вставить в чат** для повтора
 - вставляется самое нижнее поле ввода на странице; если ты уже печатаешь в поле — вставка идёт именно в него
 
@@ -555,7 +557,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.10.3
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.10.4
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и
