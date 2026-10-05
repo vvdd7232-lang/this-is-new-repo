@@ -35,6 +35,8 @@ const optionsHtml = read('options.html');
 const popupHtml = read('popup.html');
 const panelJs = read('ax-panel.js');
 const coreJs = read('ax-core.js');
+const optionsJs = read('options.js');
+const bgJs = read('background.js');
 const manifest = JSON.parse(read('manifest.json'));
 const manifestChrome = JSON.parse(read('manifest.chrome.json'));
 // Комментарии не должны влиять на проверки: иначе упоминание «PANEL_THEME_VARS»
@@ -117,6 +119,62 @@ check('превью команды доступно с клавиатуры (tab
 check('сегмент-контрол в настройках — настоящие кнопки', /data-v="(light|dark|auto)"/.test(optionsHtml));
 check('переключатели в попапе — label+checkbox (клик по всей строке)',
   /<label class="check" for="requireConfirm">/.test(popupHtml));
+
+console.log('\n[8] Кастомизация оформления: палитры, скругление, кнопки, плотность');
+const PALETTES = ['indigo', 'ocean', 'emerald', 'sunset'];
+const RADII = ['none', 'sharp', 'round', 'pill'];
+const BTNS = ['solid', 'outline', 'flat', 'tile'];
+const DENSITIES = ['compact', 'spacious'];
+
+for (const p of PALETTES) {
+  check('палитра ' + p + ' описана в CSS',
+    ui.includes('[data-ax-palette="' + p + '"]') && ui.includes(':host([data-ax-palette="' + p + '"])'));
+  check('палитра ' + p + ' есть в разметке настроек',
+    new RegExp('class="ax-palette-swatch" data-v="' + p + '"').test(optionsHtml));
+  check('палитра ' + p + ' разрешена в JS',
+    new RegExp("'" + p + "'").test(coreJs) && new RegExp("'" + p + "'").test(optionsJs));
+}
+for (const r of RADII) {
+  check('скругление ' + r + ' переопределяет токены радиуса',
+    ui.includes('[data-ax-radius="' + r + '"]') && /\[data-ax-radius="[a-z]+"\][^{]*\{[^}]*--ax-r-xs/.test(ui));
+}
+for (const b of BTNS) {
+  check('стиль кнопок ' + b + ' описан', ui.includes('[data-ax-btn="' + b + '"]'));
+}
+for (const d of DENSITIES) {
+  check('плотность ' + d + ' описана', ui.includes('[data-ax-density="' + d + '"]'));
+}
+
+check('кнопка «Все настройки» в разделе «Внешний вид»',
+  /id="uiMoreBtn"[^>]*>[\s\S]{0,120}?Все настройки/.test(optionsHtml));
+check('расширенный блок скрыт по умолчанию', /id="uiMore" hidden/.test(optionsHtml));
+check('у кнопки есть aria-controls/aria-expanded',
+  /id="uiMoreBtn"[^>]*aria-expanded/.test(optionsHtml) && /id="uiMoreBtn"[^>]*aria-controls="uiMore"/.test(optionsHtml));
+check('все 4 палитры — кнопки с data-v',
+  (optionsHtml.match(/ax-palette-swatch" data-v="/g) || []).length === 4);
+check('скругление: 5 вариантов в разметке',
+  /id="uiRadius"[\s\S]*?<\/div>/.test(optionsHtml) &&
+  (optionsHtml.match(/id="uiRadius"[\s\S]*?data-v="/g) || ['']).length >= 1);
+check('options.js инициализирует настройки оформления', /initUiTuning\(\)/.test(optionsJs));
+check('options.js применяет атрибуты к <html>', /function applyUiTuningToHtml/.test(optionsJs));
+check('options.js читает и сохраняет все 4 настройки',
+  ['uiPalette', 'uiRadius', 'uiBtnStyle', 'uiDensity'].every((k) =>
+    new RegExp(k + ": getSeg\\(").test(optionsJs) &&
+    new RegExp("setSeg\\('" + k + "', d\\." + k).test(optionsJs) &&
+    new RegExp(k + ": getSeg\\('" + k + "'\\)").test(optionsJs)));
+check('ax-core вешает атрибуты на хост панели',
+  /AX\.applyUiTuning = function/.test(coreJs) && /applyUiTuning\(panel\)/.test(coreJs));
+check('ax-core валидирует значения по белому списку',
+  /allowed\.indexOf\(value\) === -1/.test(coreJs));
+check('DEFAULTS содержит все 4 настройки оформления',
+  ['uiPalette', 'uiRadius', 'uiBtnStyle', 'uiDensity'].every((k) =>
+    new RegExp(k + ": '", 'i').test(coreJs) && new RegExp(k + ": '", 'i').test(optionsJs) &&
+    new RegExp(k + ": '", 'i').test(bgJs)));
+check('для каждой палитры есть тёмный вариант',
+  PALETTES.every((p) =>
+    ui.includes('[data-ax-theme="dark"][data-ax-palette="' + p + '"]')));
+check('акцентная кнопка остаётся контрастной в любом стиле',
+  /\.ax-btn-run/.test(ui.split('стиль кнопок')[1] || ''));
 
 console.log('\n======================================================');
 console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');

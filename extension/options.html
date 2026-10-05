@@ -578,6 +578,82 @@
           </div>
           <div class="desc">Размер шрифта и отступы в панелях под кодом.</div>
         </div>
+
+        <div class="field">
+          <div class="row-inline">
+            <span class="title">Оформление</span>
+            <span class="spacer"></span>
+            <button id="uiMoreBtn" class="ax-btn" type="button" aria-expanded="false" aria-controls="uiMore">
+              <svg class="ax-ico"><use href="#i-sliders"></use></svg>Все настройки
+            </button>
+          </div>
+          <div class="desc">Палитра, скругление, стиль кнопок и плотность — необязательные и применяются сразу.</div>
+        </div>
+
+        <div id="uiMore" hidden>
+          <div class="field">
+            <label class="title">Палитра</label>
+            <div class="ax-palettes" id="uiPalette">
+              <button type="button" class="ax-palette-swatch" data-v="indigo" title="Индиго — спокойный универсальный">
+                <span class="ax-swatch-dots"><i style="background:#5b5bd6"></i><i style="background:#8b8bf5"></i></span>
+                <span class="ax-swatch-name">Индиго</span>
+              </button>
+              <button type="button" class="ax-palette-swatch" data-v="ocean" title="Океан — глубокий синий, спокойный на длинных логах">
+                <span class="ax-swatch-dots"><i style="background:#0b6bcb"></i><i style="background:#4da3ff"></i></span>
+                <span class="ax-swatch-name">Океан</span>
+              </button>
+              <button type="button" class="ax-palette-swatch" data-v="emerald" title="Изумруд — зелёный, ассоциация с терминалом">
+                <span class="ax-swatch-dots"><i style="background:#0b8f52"></i><i style="background:#34d399"></i></span>
+                <span class="ax-swatch-name">Изумруд</span>
+              </button>
+              <button type="button" class="ax-palette-swatch" data-v="sunset" title="Закат — тёплый янтарный, заметно выделяет «Выполнить»">
+                <span class="ax-swatch-dots"><i style="background:#c2410c"></i><i style="background:#fb923c"></i></span>
+                <span class="ax-swatch-name">Закат</span>
+              </button>
+            </div>
+            <div class="desc">Меняет акцентный цвет. Поверхности и текст остаются за темой — поэтому палитра читается и в светлой, и в тёмной.</div>
+          </div>
+
+          <div class="field">
+            <label class="title">Скругление углов</label>
+            <div class="seg" id="uiRadius">
+              <button type="button" data-v="none">Плиточное</button>
+              <button type="button" data-v="sharp">Острое</button>
+              <button type="button" data-v="soft">Обычное</button>
+              <button type="button" data-v="round">Круглое</button>
+              <button type="button" data-v="pill">Таблетка</button>
+            </div>
+            <div class="desc">«Плиточное» — без скруглений вообще: строгий технический вид.</div>
+          </div>
+
+          <div class="field">
+            <label class="title">Стиль кнопок</label>
+            <div class="seg" id="uiBtnStyle">
+              <button type="button" data-v="soft">Мягкие</button>
+              <button type="button" data-v="solid">Заливка</button>
+              <button type="button" data-v="outline">Контур</button>
+              <button type="button" data-v="flat">Плоские</button>
+              <button type="button" data-v="tile">Плитка</button>
+            </div>
+            <div class="desc">«Заливка» — кнопки цветные, «контур» — только рамка, «плитка» — прямоугольные без рамок.</div>
+          </div>
+
+          <div class="field">
+            <label class="title">Плотность</label>
+            <div class="seg" id="uiDensity">
+              <button type="button" data-v="compact">Компактно</button>
+              <button type="button" data-v="normal">Обычно</button>
+              <button type="button" data-v="spacious">Просторно</button>
+            </div>
+            <div class="desc">Компактно — больше вывода на экран, просторно — крупнее шрифт и отступы.</div>
+          </div>
+
+          <div class="row-inline">
+            <button id="uiMoreReset" class="ax-btn" type="button">
+              <svg class="ax-ico"><use href="#i-undo"></use></svg>Сбросить оформление
+            </button>
+          </div>
+        </div>
         <div class="check"><input type="checkbox" id="collapseAfterRun">
           <label for="collapseAfterRun"><b>Сворачивать вывод после выполнения</b>
           <span class="d">Экономит место в длинных чатах.</span></label>

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 AI Execute Runner — локальный сервер выполнения команд.
 Слушает ТОЛЬКО 127.0.0.1:8765 (доступ лишь с вашего ПК).
@@ -30,7 +30,7 @@ import mcp_client as _mcp  # noqa: E402
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.9.1'
+VERSION = '2.10.0'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run

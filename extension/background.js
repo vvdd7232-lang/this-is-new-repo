@@ -26,7 +26,11 @@ const DEFAULTS = {
   previewLines: 12,             // строк команды в развёрнутом предпросмотре (0 = все)
   paletteEnabled: true,         // палитра команд по Ctrl+Shift+E
   noisyCollapse: true,          // сворачивать длинные листинги в выводе
-  mcpEnabled: false             // MCP (экспериментально): показывать инструменты MCP-серверов
+  mcpEnabled: false,            // MCP (экспериментально): показывать инструменты MCP-серверов
+  uiPalette: 'indigo',          // внешний вид: indigo | ocean | emerald | sunset
+  uiRadius: 'soft',             // скругление: none | sharp | soft | round | pill
+  uiBtnStyle: 'soft',           // кнопки: soft | solid | outline | flat | tile
+  uiDensity: 'normal',          // плотность: compact | normal | spacious
 };
 
 const axApi = typeof browser !== 'undefined' ? browser : chrome;

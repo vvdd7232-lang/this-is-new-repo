@@ -55,6 +55,11 @@ const DEFAULTS = {
   noisyCollapse: true,
   // MCP — экспериментальная функция, поэтому выключена по умолчанию.
   mcpEnabled: false,
+  // Внешний вид (экспериментально)
+  uiPalette: 'indigo',
+  uiRadius: 'soft',
+  uiBtnStyle: 'soft',
+  uiDensity: 'normal',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -118,6 +123,11 @@ async function load() {
   $('soundOnComplete').checked = d.soundOnComplete === true;
   $('browserNotify').checked = d.browserNotify === true;
   setSeg('echoMode', d.echoMode || 'short');
+  setSeg('uiPalette', d.uiPalette || 'indigo');
+  setSeg('uiRadius', d.uiRadius || 'soft');
+  setSeg('uiBtnStyle', d.uiBtnStyle || 'soft');
+  setSeg('uiDensity', d.uiDensity || 'normal');
+  applyUiTuningToHtml(d);
   $('previewLines').value = d.previewLines != null ? d.previewLines : DEFAULTS.previewLines;
   $('noisyCollapse').checked = d.noisyCollapse !== false;
   $('mcpEnabled').checked = d.mcpEnabled === true;   // opt-in: включается только явно
@@ -210,6 +220,70 @@ function bindSeg(id, onChange) {
   });
 }
 
+// ---------- оформление (палитра, скругление, кнопки, плотность) ----------
+// Здесь ax-core.js нет (он грузится только в content-script), поэтому список
+// допустимых значений продублирован. Расхождение ловит тест согласованности.
+const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset'];
+const UI_RADII = ['none', 'sharp', 'soft', 'round', 'pill'];
+const UI_BTN_STYLES = ['soft', 'solid', 'outline', 'flat', 'tile'];
+const UI_DENSITIES = ['compact', 'normal', 'spacious'];
+const UI_TUNING = [
+  { key: 'uiPalette', attr: 'data-ax-palette', allowed: UI_PALETTES, def: 'indigo' },
+  { key: 'uiRadius', attr: 'data-ax-radius', allowed: UI_RADII, def: 'soft' },
+  { key: 'uiBtnStyle', attr: 'data-ax-btn', allowed: UI_BTN_STYLES, def: 'soft' },
+  { key: 'uiDensity', attr: 'data-ax-density', allowed: UI_DENSITIES, def: 'normal' },
+];
+
+// Ставит атрибуты на <html>, чтобы страница настроек сразу показывала выбранное.
+function applyUiTuningToHtml(values) {
+  const html = document.documentElement;
+  const v = values || {};
+  UI_TUNING.forEach((t) => {
+    let val = v[t.key];
+    if (t.allowed.indexOf(val) === -1) val = t.def;
+    if (val && val !== t.def) html.setAttribute(t.attr, val);
+    else html.removeAttribute(t.attr);
+  });
+}
+
+function initUiTuning() {
+  UI_TUNING.forEach((t) => {
+    bindSeg(t.key, () => applyUiTuningToHtml(readUiTuning()));
+  });
+  // Палитра — такие же кнопки с data-v, но подсветка своя.
+  bindSeg('uiPalette', () => applyUiTuningToHtml(readUiTuning()));
+  const moreBtn = $('uiMoreBtn');
+  const more = $('uiMore');
+  if (moreBtn && more) {
+    moreBtn.addEventListener('click', () => {
+      const show = more.hidden;
+      more.hidden = !show;
+      moreBtn.setAttribute('aria-expanded', String(show));
+      moreBtn.classList.toggle('on', show);
+    });
+  }
+  const reset = $('uiMoreReset');
+  if (reset) {
+    reset.addEventListener('click', async () => {
+      await axStorageSet('sync', { uiPalette: 'indigo', uiRadius: 'soft', uiBtnStyle: 'soft', uiDensity: 'normal' });
+      applyUiTuningToHtml(readUiTuning());
+      await load();
+      statusMsg('🎨 Оформление сброшено к умолчанию', 'ok');
+      clearDirty();
+    });
+  }
+}
+
+// Текущие значения оформления из формы (без чтения storage — оттуда lag при клике).
+function readUiTuning() {
+  return {
+    uiPalette: getSeg('uiPalette') || 'indigo',
+    uiRadius: getSeg('uiRadius') || 'soft',
+    uiBtnStyle: getSeg('uiBtnStyle') || 'soft',
+    uiDensity: getSeg('uiDensity') || 'normal',
+  };
+}
+
 async function exportSettings() {
   clearSticky();
   try {
@@ -256,6 +330,8 @@ async function importSettings(file) {
 bindSeg('uiTheme', (v) => applyTheme(v));
 bindSeg('panelSize');
 bindSeg('echoMode');
+// Палитра, скругление, стиль кнопок, плотность + кнопка «Все настройки».
+try { initUiTuning(); } catch (e) { console.warn('[AX] ui tuning:', e); }
 
 const _expBtn = document.getElementById('exportBtn');
 if (_expBtn) _expBtn.onclick = exportSettings;
@@ -747,6 +823,10 @@ async function save() {
     showToasts: $('showToasts').checked,
     defaultCwd: $('defaultCwd').value.trim(),
     echoMode: getSeg('echoMode') || 'short',
+    uiPalette: getSeg('uiPalette') || 'indigo',
+    uiRadius: getSeg('uiRadius') || 'soft',
+    uiBtnStyle: getSeg('uiBtnStyle') || 'soft',
+    uiDensity: getSeg('uiDensity') || 'normal',
     previewLines: clampNum($('previewLines').value, 0, 500, 12),
     paletteEnabled: $('paletteEnabled').checked,
     noisyCollapse: $('noisyCollapse').checked,

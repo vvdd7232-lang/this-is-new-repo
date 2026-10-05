@@ -133,6 +133,108 @@
   --ax-shadow-3: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 
+/* ---------- палитры (экспериментально) ----------
+ * Палитра меняет только акцент и служебные цвета; поверхности и текст
+ * остаются за темой (light/dark). Так палитра одинаково читается в обеих.
+ * Каждый вариант описан для светлой и тёмной темы, иначе акцент был бы
+ * нечитаемым на одной из них.
+ * Селекторы идут парами «:host(...) , [...]»: обычный селектор не пересекает
+ * границу shadow root, поэтому для панелей и модалок нужен :host. */
+[data-ax-palette="indigo"],
+:host([data-ax-palette="indigo"]) {
+  --ax-accent: #5b5bd6;
+  --ax-accent-strong: #4a48c4;
+  --ax-accent-soft: rgba(91, 91, 214, 0.12);
+  --ax-accent-ring: rgba(91, 91, 214, 0.35);
+}
+[data-ax-theme="dark"] [data-ax-palette="indigo"],
+[data-ax-theme="dark"][data-ax-palette="indigo"],
+:host([data-ax-theme="dark"][data-ax-palette="indigo"]) {
+  --ax-accent: #8b8bf5;
+  --ax-accent-strong: #a3a3ff;
+  --ax-accent-soft: rgba(139, 139, 245, 0.16);
+  --ax-accent-ring: rgba(139, 139, 245, 0.4);
+}
+
+/* Океан — глубокий синий. Спокойнее индиго, хорошо читается на долгих
+ * сессиях с логами. */
+[data-ax-palette="ocean"],
+:host([data-ax-palette="ocean"]) {
+  --ax-accent: #0b6bcb;
+  --ax-accent-strong: #0957a6;
+  --ax-accent-soft: rgba(11, 107, 203, 0.12);
+  --ax-accent-ring: rgba(11, 107, 203, 0.35);
+  --ax-info: #0b6bcb;
+}
+[data-ax-theme="dark"] [data-ax-palette="ocean"],
+[data-ax-theme="dark"][data-ax-palette="ocean"],
+:host([data-ax-theme="dark"][data-ax-palette="ocean"]) {
+  --ax-accent: #4da3ff;
+  --ax-accent-strong: #79bcff;
+  --ax-accent-soft: rgba(77, 163, 255, 0.16);
+  --ax-accent-ring: rgba(77, 163, 255, 0.42);
+  --ax-info: #4da3ff;
+}
+
+/* Изумруд — зелёный акцент, ассоциация с терминалом и git. */
+[data-ax-palette="emerald"],
+:host([data-ax-palette="emerald"]) {
+  --ax-accent: #0b8f52;
+  --ax-accent-strong: #077642;
+  --ax-accent-soft: rgba(11, 143, 82, 0.12);
+  --ax-accent-ring: rgba(11, 143, 82, 0.35);
+}
+[data-ax-theme="dark"] [data-ax-palette="emerald"],
+[data-ax-theme="dark"][data-ax-palette="emerald"],
+:host([data-ax-theme="dark"][data-ax-palette="emerald"]) {
+  --ax-accent: #34d399;
+  --ax-accent-strong: #6ee7b7;
+  --ax-accent-soft: rgba(52, 211, 153, 0.16);
+  --ax-accent-ring: rgba(52, 211, 153, 0.42);
+}
+
+/* Закат — тёплый янтарный. Проседает на длинных текстах, зато заметно
+ * выделяет кнопку «Выполнить». */
+[data-ax-palette="sunset"],
+:host([data-ax-palette="sunset"]) {
+  --ax-accent: #c2410c;
+  --ax-accent-strong: #9a3412;
+  --ax-accent-soft: rgba(194, 65, 12, 0.12);
+  --ax-accent-ring: rgba(194, 65, 12, 0.35);
+}
+[data-ax-theme="dark"] [data-ax-palette="sunset"],
+[data-ax-theme="dark"][data-ax-palette="sunset"],
+:host([data-ax-theme="dark"][data-ax-palette="sunset"]) {
+  --ax-accent: #fb923c;
+  --ax-accent-strong: #fdba74;
+  --ax-accent-soft: rgba(251, 146, 60, 0.16);
+  --ax-accent-ring: rgba(251, 146, 60, 0.42);
+}
+
+/* ---------- скругление ----------
+ * Токены радиуса переопределяются целиком: иначе «плиточный» стиль
+ * оставил бы скруглёнными чипы, поля и тосты. */
+[data-ax-radius="none"],
+:host([data-ax-radius="none"]) {
+  --ax-r-xs: 0px; --ax-r-sm: 0px; --ax-r-md: 0px;
+  --ax-r-lg: 0px; --ax-r-pill: 0px;
+}
+[data-ax-radius="sharp"],
+:host([data-ax-radius="sharp"]) {
+  --ax-r-xs: 2px; --ax-r-sm: 3px; --ax-r-md: 4px;
+  --ax-r-lg: 5px; --ax-r-pill: 8px;
+}
+[data-ax-radius="round"],
+:host([data-ax-radius="round"]) {
+  --ax-r-xs: 10px; --ax-r-sm: 14px; --ax-r-md: 18px;
+  --ax-r-lg: 24px; --ax-r-pill: 999px;
+}
+[data-ax-radius="pill"],
+:host([data-ax-radius="pill"]) {
+  --ax-r-xs: 999px; --ax-r-sm: 999px; --ax-r-md: 999px;
+  --ax-r-lg: 999px; --ax-r-pill: 999px;
+}
+
 /* ---------- базовые элементы ---------- */
 
 .ax-ui,
@@ -302,6 +404,46 @@
   color: var(--ax-text);
 }
 
+/* Плитки выбора палитры (раздел «Внешний вид») */
+.ax-palettes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.ax-palette-swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ax-border-strong);
+  border-radius: var(--ax-r-sm);
+  background: var(--ax-surface);
+  color: var(--ax-text);
+  font: inherit;
+  font-size: var(--ax-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.ax-palette-swatch:hover { border-color: var(--ax-accent-ring); }
+.ax-palette-swatch.on {
+  border-color: var(--ax-accent);
+  background: var(--ax-accent-soft);
+  box-shadow: 0 0 0 1px var(--ax-accent) inset;
+}
+.ax-swatch-dots {
+  display: inline-flex;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.ax-swatch-dots i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: block;
+}
+.ax-swatch-name { color: var(--ax-text); }
+
 /* Строка статуса MCP-сервера */
 .ax-mcp-row {
   display: flex;
@@ -370,4 +512,85 @@
   color: var(--ax-text);
   font-size: var(--ax-fs-md);
   line-height: 1.5;
+}
+
+/* ---------- стиль кнопок (экспериментально) ----------
+ * Правила стоят после базовых .ax-btn, иначе их не перебьёшь: специфичность
+ * тут одинаковая, решает порядок. */
+[data-ax-btn="solid"] .ax-btn,
+:host([data-ax-btn="solid"]) .ax-btn {
+  background: var(--ax-accent);
+  border-color: var(--ax-accent);
+  color: #fff;
+}
+[data-ax-btn="solid"] .ax-btn:hover,
+:host([data-ax-btn="solid"]) .ax-btn:hover {
+  background: var(--ax-accent-strong);
+  border-color: var(--ax-accent-strong);
+}
+
+[data-ax-btn="outline"] .ax-btn,
+:host([data-ax-btn="outline"]) .ax-btn {
+  background: transparent;
+  border-color: var(--ax-accent-ring);
+  color: var(--ax-accent-strong);
+}
+[data-ax-btn="outline"] .ax-btn:hover,
+:host([data-ax-btn="outline"]) .ax-btn:hover {
+  background: var(--ax-accent-soft);
+}
+
+[data-ax-btn="flat"] .ax-btn,
+:host([data-ax-btn="flat"]) .ax-btn {
+  border-color: transparent;
+  background: var(--ax-surface-2);
+}
+/* «flat» без рамки + скругление по умолчанию = плиточный вид. */
+[data-ax-btn="tile"] .ax-btn,
+:host([data-ax-btn="tile"]) .ax-btn {
+  border-color: transparent;
+  background: var(--ax-surface-2);
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-ax-btn="tile"] .ax-btn:hover,
+:host([data-ax-btn="tile"]) .ax-btn:hover {
+  background: var(--ax-surface-3);
+}
+
+/* Акцентная кнопка («Выполнить») не должна терять читаемость ни в одной
+ * палитре, поэтому текст на заливке всегда контрастный. */
+[data-ax-btn="solid"] .ax-btn-run,
+[data-ax-btn="outline"] .ax-btn-run,
+[data-ax-btn="flat"] .ax-btn-run,
+[data-ax-btn="tile"] .ax-btn-run,
+:host([data-ax-btn="solid"]) .ax-btn-run,
+:host([data-ax-btn="outline"]) .ax-btn-run,
+:host([data-ax-btn="flat"]) .ax-btn-run,
+:host([data-ax-btn="tile"]) .ax-btn-run {
+  background: var(--ax-accent);
+  border-color: var(--ax-accent);
+  color: #fff;
+}
+
+/* ---------- плотность ----------
+ * Меняем вертикальные отступы и кегль панели, чтобы уместилось больше вывода
+ * на экране (compact) или стало проще читать (spacious). */
+:host([data-ax-density="compact"]),
+[data-ax-density="compact"] .ax-shadow-content {
+  --ax-fs-md: 12px;
+}
+:host([data-ax-density="compact"]) .ax-btn,
+[data-ax-density="compact"] .ax-btn {
+  padding: 5px 9px;
+  font-size: var(--ax-fs-xs);
+}
+:host([data-ax-density="spacious"]),
+[data-ax-density="spacious"] .ax-shadow-content {
+  --ax-fs-md: 14px;
+}
+:host([data-ax-density="spacious"]) .ax-btn,
+[data-ax-density="spacious"] .ax-btn {
+  padding: 9px 15px;
+  font-size: var(--ax-fs-md);
 }

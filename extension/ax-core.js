@@ -44,6 +44,11 @@
     previewLines: 12,
     paletteEnabled: true,
     noisyCollapse: true,
+    // Внешний вид (экспериментально): палитра, скругление, стиль кнопок, плотность
+    uiPalette: 'indigo',
+    uiRadius: 'soft',
+    uiBtnStyle: 'soft',
+    uiDensity: 'normal',
   };
   AX.settings = { ...AX.DEFAULTS };
 
@@ -856,7 +861,39 @@
      разошёлся с CSS, из-за чего отступы и тени в модалке и палитре были
      не заданы и карточки теряли padding/радиус/тень. Дубликат удалён —
      при расхождении теперь правьте только ax-ui.css. */
-  AX.applyPanelAppearance = function (panel) {
+  // Кастомизация внешнего вида (палитра, скругление, стиль кнопок, плотность).
+// Атрибуты вешаем на хост: CSS внутри тени читает их через :host([...]).
+// Значения прогоняем по белому списку — атрибут попадает в разметку, и
+// произвольная строка из настроек там не нужна.
+const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset'];
+const UI_RADII = ['none', 'sharp', 'soft', 'round', 'pill'];
+const UI_BTN_STYLES = ['soft', 'solid', 'outline', 'flat', 'tile'];
+const UI_DENSITIES = ['compact', 'normal', 'spacious'];
+
+function axUiAttr(el, name, value, allowed, fallback) {
+  try {
+    if (!el) return;
+    if (allowed.indexOf(value) === -1) value = fallback;
+    if (value && value !== fallback) el.setAttribute(name, value);
+    else el.removeAttribute(name);
+  } catch (e) { /* ignore */ }
+}
+
+// Применяет визуальные настройки к панели/модалке/палитре команд.
+AX.applyUiTuning = function (el) {
+  const s = AX.settings || {};
+  axUiAttr(el, 'data-ax-palette', s.uiPalette, UI_PALETTES, 'indigo');
+  axUiAttr(el, 'data-ax-radius', s.uiRadius, UI_RADII, 'soft');
+  axUiAttr(el, 'data-ax-btn', s.uiBtnStyle, UI_BTN_STYLES, 'soft');
+  axUiAttr(el, 'data-ax-density', s.uiDensity, UI_DENSITIES, 'normal');
+};
+
+AX.UI_PALETTES = UI_PALETTES;
+AX.UI_RADII = UI_RADII;
+AX.UI_BTN_STYLES = UI_BTN_STYLES;
+AX.UI_DENSITIES = UI_DENSITIES;
+
+AX.applyPanelAppearance = function (panel) {
     try {
       const size = AX.settings.panelSize || 'normal';
       panel.classList.remove('ax-size-compact', 'ax-size-large');
@@ -875,6 +912,8 @@
       panel.classList.toggle('ax-dark', effective === 'dark');
       // Атрибут на хосте выбирает блок :host([data-ax-theme="dark"]).
       panel.setAttribute('data-ax-theme', effective);
+      // Палитра, скругление, стиль кнопок и плотность — тоже через хост.
+      try { AX.applyUiTuning(panel); } catch (e) { /* ignore */ }
       // .ax-dark-scope — запасной путь для содержимого тени.
       const scope = panel.innerContent;
       if (scope) scope.classList.toggle('ax-dark-scope', effective === 'dark');
