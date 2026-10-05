@@ -176,6 +176,34 @@ check('для каждой палитры есть тёмный вариант',
 check('акцентная кнопка остаётся контрастной в любом стиле',
   /\.ax-btn-run/.test(ui.split('стиль кнопок')[1] || ''));
 
+// Регрессии, найденные на живых проверках:
+// 1) палитра не применялась в тёмной системной теме — блок .ax-ui-auto внутри
+//    @media красит акцент на <body> со специфичностью (0,2,1) и перебивал
+//    палитру (0,1,0) на <html>;
+// 2) «таблетка» ставила 999px крупным токенам, и широкие карточки
+//    превращались в эллипсы.
+check('палитра перекрывает .ax-ui-auto из тёмной темы',
+  PALETTES.every((p) => ui.includes('.ax-ui-auto[data-ax-palette="' + p + '"]')));
+check('блок палитр стоит ПОСЛЕ блока .ax-ui-auto',
+  ui.lastIndexOf('[data-ax-palette="indigo"]') > ui.lastIndexOf('.ax-ui-auto {'));
+check('для каждой палитры есть вариант для тёмной темы на body',
+  PALETTES.every((p) => ui.includes('[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="' + p + '"]')));
+check('у каждой палитры остались :host-варианты для shadow root',
+  PALETTES.every((p) => ui.includes(':host([data-ax-palette="' + p + '"])')));
+
+const pillBlock = (ui.match(/\[data-ax-radius="pill"\][^{]*\{([^}]*)\}/) || [])[1] || '';
+check('«таблетка» не ставит 999px крупным радиусам',
+  !/--ax-r-(md|lg):\s*999px/.test(pillBlock));
+check('«таблетка» скругляет кнопки (мелкий токен sm)',
+  /--ax-r-sm:\s*999px/.test(pillBlock));
+check('«таблетка» оставляет конечные значения xs/md/lg',
+  /--ax-r-xs:\s*\d+px/.test(pillBlock) && /--ax-r-md:\s*\d+px/.test(pillBlock) &&
+  /--ax-r-lg:\s*\d+px/.test(pillBlock));
+check('ни одна палитра/радиус не задан только через :host (иначе сломается страница настроек)',
+  PALETTES.every((p) => new RegExp('\\[data-ax-palette="' + p + '"\\][^}]*\\{').test(ui)) &&
+  ['none', 'sharp', 'round', 'pill'].every((r) =>
+    new RegExp('\\[data-ax-radius="' + r + '"\\][^}]*\\{').test(ui)));
+
 console.log('\n======================================================');
 console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
 if (failed) {

@@ -133,108 +133,6 @@
   --ax-shadow-3: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 
-/* ---------- палитры (экспериментально) ----------
- * Палитра меняет только акцент и служебные цвета; поверхности и текст
- * остаются за темой (light/dark). Так палитра одинаково читается в обеих.
- * Каждый вариант описан для светлой и тёмной темы, иначе акцент был бы
- * нечитаемым на одной из них.
- * Селекторы идут парами «:host(...) , [...]»: обычный селектор не пересекает
- * границу shadow root, поэтому для панелей и модалок нужен :host. */
-[data-ax-palette="indigo"],
-:host([data-ax-palette="indigo"]) {
-  --ax-accent: #5b5bd6;
-  --ax-accent-strong: #4a48c4;
-  --ax-accent-soft: rgba(91, 91, 214, 0.12);
-  --ax-accent-ring: rgba(91, 91, 214, 0.35);
-}
-[data-ax-theme="dark"] [data-ax-palette="indigo"],
-[data-ax-theme="dark"][data-ax-palette="indigo"],
-:host([data-ax-theme="dark"][data-ax-palette="indigo"]) {
-  --ax-accent: #8b8bf5;
-  --ax-accent-strong: #a3a3ff;
-  --ax-accent-soft: rgba(139, 139, 245, 0.16);
-  --ax-accent-ring: rgba(139, 139, 245, 0.4);
-}
-
-/* Океан — глубокий синий. Спокойнее индиго, хорошо читается на долгих
- * сессиях с логами. */
-[data-ax-palette="ocean"],
-:host([data-ax-palette="ocean"]) {
-  --ax-accent: #0b6bcb;
-  --ax-accent-strong: #0957a6;
-  --ax-accent-soft: rgba(11, 107, 203, 0.12);
-  --ax-accent-ring: rgba(11, 107, 203, 0.35);
-  --ax-info: #0b6bcb;
-}
-[data-ax-theme="dark"] [data-ax-palette="ocean"],
-[data-ax-theme="dark"][data-ax-palette="ocean"],
-:host([data-ax-theme="dark"][data-ax-palette="ocean"]) {
-  --ax-accent: #4da3ff;
-  --ax-accent-strong: #79bcff;
-  --ax-accent-soft: rgba(77, 163, 255, 0.16);
-  --ax-accent-ring: rgba(77, 163, 255, 0.42);
-  --ax-info: #4da3ff;
-}
-
-/* Изумруд — зелёный акцент, ассоциация с терминалом и git. */
-[data-ax-palette="emerald"],
-:host([data-ax-palette="emerald"]) {
-  --ax-accent: #0b8f52;
-  --ax-accent-strong: #077642;
-  --ax-accent-soft: rgba(11, 143, 82, 0.12);
-  --ax-accent-ring: rgba(11, 143, 82, 0.35);
-}
-[data-ax-theme="dark"] [data-ax-palette="emerald"],
-[data-ax-theme="dark"][data-ax-palette="emerald"],
-:host([data-ax-theme="dark"][data-ax-palette="emerald"]) {
-  --ax-accent: #34d399;
-  --ax-accent-strong: #6ee7b7;
-  --ax-accent-soft: rgba(52, 211, 153, 0.16);
-  --ax-accent-ring: rgba(52, 211, 153, 0.42);
-}
-
-/* Закат — тёплый янтарный. Проседает на длинных текстах, зато заметно
- * выделяет кнопку «Выполнить». */
-[data-ax-palette="sunset"],
-:host([data-ax-palette="sunset"]) {
-  --ax-accent: #c2410c;
-  --ax-accent-strong: #9a3412;
-  --ax-accent-soft: rgba(194, 65, 12, 0.12);
-  --ax-accent-ring: rgba(194, 65, 12, 0.35);
-}
-[data-ax-theme="dark"] [data-ax-palette="sunset"],
-[data-ax-theme="dark"][data-ax-palette="sunset"],
-:host([data-ax-theme="dark"][data-ax-palette="sunset"]) {
-  --ax-accent: #fb923c;
-  --ax-accent-strong: #fdba74;
-  --ax-accent-soft: rgba(251, 146, 60, 0.16);
-  --ax-accent-ring: rgba(251, 146, 60, 0.42);
-}
-
-/* ---------- скругление ----------
- * Токены радиуса переопределяются целиком: иначе «плиточный» стиль
- * оставил бы скруглёнными чипы, поля и тосты. */
-[data-ax-radius="none"],
-:host([data-ax-radius="none"]) {
-  --ax-r-xs: 0px; --ax-r-sm: 0px; --ax-r-md: 0px;
-  --ax-r-lg: 0px; --ax-r-pill: 0px;
-}
-[data-ax-radius="sharp"],
-:host([data-ax-radius="sharp"]) {
-  --ax-r-xs: 2px; --ax-r-sm: 3px; --ax-r-md: 4px;
-  --ax-r-lg: 5px; --ax-r-pill: 8px;
-}
-[data-ax-radius="round"],
-:host([data-ax-radius="round"]) {
-  --ax-r-xs: 10px; --ax-r-sm: 14px; --ax-r-md: 18px;
-  --ax-r-lg: 24px; --ax-r-pill: 999px;
-}
-[data-ax-radius="pill"],
-:host([data-ax-radius="pill"]) {
-  --ax-r-xs: 999px; --ax-r-sm: 999px; --ax-r-md: 999px;
-  --ax-r-lg: 999px; --ax-r-pill: 999px;
-}
-
 /* ---------- базовые элементы ---------- */
 
 .ax-ui,
@@ -593,4 +491,128 @@
 [data-ax-density="spacious"] .ax-btn {
   padding: 9px 15px;
   font-size: var(--ax-fs-md);
+}
+
+
+/* ---------- палитры ----------
+ * Палитра меняет только акцент и служебные цвета; поверхности и текст
+ * остаются за темой (light/dark). Так палитра одинаково читается в обеих.
+ *
+ * ПОЧЕМУ БЛОК В КОНЦЕ ФАЙЛА (а не рядом с базовыми токенами):
+ * страница настроек в авто-режиме красит акцент через .ax-ui-auto внутри
+ * @media prefers-color-scheme — специфичность (0,2,1) против наших (0,1,0).
+ * Ниже перекрываем это более высокой специфичностью (селекторы вида
+ * .ax-ui-auto[data-ax-palette=...] дают (0,3,0)) и тем, что блок стоит после.
+ * Иначе палитра молча не применялась бы в тёмной системной теме: акцент
+ * менялся, а страница оставалась прежней.
+ *
+ * У каждой палитры свой вариант для тёмной темы — на тёмном фоне светлый
+ * акцент нечитаем.
+ */
+
+/* Индиго — исходная палитра, совпадает с базовыми токенами. */
+[data-ax-palette="indigo"],
+:host([data-ax-palette="indigo"]),
+.ax-ui-auto[data-ax-palette="indigo"] {
+  --ax-accent: #5b5bd6;
+  --ax-accent-strong: #4a48c4;
+  --ax-accent-soft: rgba(91, 91, 214, 0.12);
+  --ax-accent-ring: rgba(91, 91, 214, 0.35);
+}
+[data-ax-theme="dark"] [data-ax-palette="indigo"],
+[data-ax-theme="dark"][data-ax-palette="indigo"],
+[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="indigo"],
+:host([data-ax-theme="dark"][data-ax-palette="indigo"]) {
+  --ax-accent: #8b8bf5;
+  --ax-accent-strong: #a3a3ff;
+  --ax-accent-soft: rgba(139, 139, 245, 0.16);
+  --ax-accent-ring: rgba(139, 139, 245, 0.4);
+}
+
+/* Океан — глубокий синий. Спокойнее индиго, хорош на длинных логах. */
+[data-ax-palette="ocean"],
+:host([data-ax-palette="ocean"]),
+.ax-ui-auto[data-ax-palette="ocean"] {
+  --ax-accent: #0b6bcb;
+  --ax-accent-strong: #0957a6;
+  --ax-accent-soft: rgba(11, 107, 203, 0.12);
+  --ax-accent-ring: rgba(11, 107, 203, 0.35);
+  --ax-info: #0b6bcb;
+}
+[data-ax-theme="dark"] [data-ax-palette="ocean"],
+[data-ax-theme="dark"][data-ax-palette="ocean"],
+[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="ocean"],
+:host([data-ax-theme="dark"][data-ax-palette="ocean"]) {
+  --ax-accent: #4da3ff;
+  --ax-accent-strong: #79bcff;
+  --ax-accent-soft: rgba(77, 163, 255, 0.16);
+  --ax-accent-ring: rgba(77, 163, 255, 0.42);
+  --ax-info: #4da3ff;
+}
+
+/* Изумруд — зелёный акцент, ассоциация с терминалом и git. */
+[data-ax-palette="emerald"],
+:host([data-ax-palette="emerald"]),
+.ax-ui-auto[data-ax-palette="emerald"] {
+  --ax-accent: #0b8f52;
+  --ax-accent-strong: #077642;
+  --ax-accent-soft: rgba(11, 143, 82, 0.12);
+  --ax-accent-ring: rgba(11, 143, 82, 0.35);
+}
+[data-ax-theme="dark"] [data-ax-palette="emerald"],
+[data-ax-theme="dark"][data-ax-palette="emerald"],
+[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="emerald"],
+:host([data-ax-theme="dark"][data-ax-palette="emerald"]) {
+  --ax-accent: #34d399;
+  --ax-accent-strong: #6ee7b7;
+  --ax-accent-soft: rgba(52, 211, 153, 0.16);
+  --ax-accent-ring: rgba(52, 211, 153, 0.42);
+}
+
+/* Закат — тёплый янтарный. Проседает на длинных текстах, зато заметно
+ * выделяет кнопку «Выполнить». */
+[data-ax-palette="sunset"],
+:host([data-ax-palette="sunset"]),
+.ax-ui-auto[data-ax-palette="sunset"] {
+  --ax-accent: #c2410c;
+  --ax-accent-strong: #9a3412;
+  --ax-accent-soft: rgba(194, 65, 12, 0.12);
+  --ax-accent-ring: rgba(194, 65, 12, 0.35);
+}
+[data-ax-theme="dark"] [data-ax-palette="sunset"],
+[data-ax-theme="dark"][data-ax-palette="sunset"],
+[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="sunset"],
+:host([data-ax-theme="dark"][data-ax-palette="sunset"]) {
+  --ax-accent: #fb923c;
+  --ax-accent-strong: #fdba74;
+  --ax-accent-soft: rgba(251, 146, 60, 0.16);
+  --ax-accent-ring: rgba(251, 146, 60, 0.42);
+}
+
+/* ---------- скругление ----------
+ * Токены переопределяются целиком, иначе «плиточное» оставило бы
+ * скруглёнными чипы, поля и тосты.
+ *
+ * Про «таблетку»: 999px ставим ТОЛЬКО мелким токенам (sm/pill), которыми
+ * рисуют кнопки, поля и чипы. Крупные (md/lg) получают умеренные значения —
+ * при 999px широкая карточка превращается в эллипс. */
+[data-ax-radius="none"],
+:host([data-ax-radius="none"]) {
+  --ax-r-xs: 0px; --ax-r-sm: 0px; --ax-r-md: 0px;
+  --ax-r-lg: 0px; --ax-r-pill: 0px;
+}
+[data-ax-radius="sharp"],
+:host([data-ax-radius="sharp"]) {
+  --ax-r-xs: 2px; --ax-r-sm: 3px; --ax-r-md: 4px;
+  --ax-r-lg: 5px; --ax-r-pill: 8px;
+}
+[data-ax-radius="round"],
+:host([data-ax-radius="round"]) {
+  --ax-r-xs: 10px; --ax-r-sm: 14px; --ax-r-md: 18px;
+  --ax-r-lg: 24px; --ax-r-pill: 999px;
+}
+[data-ax-radius="pill"],
+:host([data-ax-radius="pill"]) {
+  --ax-r-xs: 8px; --ax-r-sm: 999px; --ax-r-md: 20px;
+  --ax-r-lg: 28px; --ax-r-pill: 999px;
 }
