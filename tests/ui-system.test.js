@@ -176,18 +176,29 @@ check('для каждой палитры есть тёмный вариант',
 check('акцентная кнопка остаётся контрастной в любом стиле',
   /\.ax-btn-run/.test(ui.split('стиль кнопок')[1] || ''));
 
-// Регрессии, найденные на живых проверках:
-// 1) палитра не применялась в тёмной системной теме — блок .ax-ui-auto внутри
-//    @media красит акцент на <body> со специфичностью (0,2,1) и перебивал
-//    палитру (0,1,0) на <html>;
-// 2) «таблетка» ставила 999px крупным токенам, и широкие карточки
-//    превращались в эллипсы.
-check('палитра перекрывает .ax-ui-auto из тёмной темы',
-  PALETTES.every((p) => ui.includes('.ax-ui-auto[data-ax-palette="' + p + '"]')));
-check('блок палитр стоит ПОСЛЕ блока .ax-ui-auto',
-  ui.lastIndexOf('[data-ax-palette="indigo"]') > ui.lastIndexOf('.ax-ui-auto {'));
-check('для каждой палитры есть вариант для тёмной темы на body',
-  PALETTES.every((p) => ui.includes('[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="' + p + '"]')));
+// Регрессия из v2.10.1: палитра красила <html>, а весь интерфейс берёт цвет
+// из токенов, объявленных на <body> (класс .ax-ui-auto). Селектор вида
+// .ax-ui-auto[data-ax-palette="X"] требовал атрибут на самом body, а JS ставит
+// его на html — правило не срабатывало, и страница оставалась прежней.
+check('палитра привязана к html, а не к body',
+  PALETTES.every((p) => ui.includes('html[data-ax-palette="' + p + '"] .ax-ui-auto')));
+check('нет нерабочих селекторов .ax-ui-auto[data-ax-palette]',
+  // Комментарии вырезаем: в CSS есть запись-предупреждение про этот селектор.
+  !/\.ax-ui-auto\[data-ax-palette/.test(ui.replace(/\/\*[\s\S]*?\*\//g, '')));
+check('тёмный вариант палитры тоже привязан к html',
+  PALETTES.every((p) => ui.includes('html[data-ax-theme="dark"][data-ax-palette="' + p + '"] .ax-ui-auto')));
+check('нет бессмысленных селекторов вида [data-ax-theme] html[...]',
+  !/\[data-ax-theme="dark"\] html\[/.test(ui));
+check('JS ставит атрибут палитры на documentElement',
+  /document\.documentElement/.test(optionsJs) && /html\.setAttribute\(t\.attr/.test(optionsJs));
+// Якорь — именно блок авто-тёмной темы (html:not(...) .ax-ui-auto), а не любое
+// вхождение «.ax-ui-auto {»: палитровые блоки сами заканчиваются таким
+// селектором, и lastIndexOf цеплял бы их вместо блока темы.
+check('блок палитр стоит ПОСЛЕ блока авто-тёмной темы',
+  ui.lastIndexOf('html[data-ax-palette="indigo"]') >
+  ui.lastIndexOf('html:not([data-ax-theme="light"]) .ax-ui-auto {'));
+check('для каждой палитры есть вариант для тёмной темы',
+  PALETTES.every((p) => ui.includes('[data-ax-theme="dark"][data-ax-palette="' + p + '"]')));
 check('у каждой палитры остались :host-варианты для shadow root',
   PALETTES.every((p) => ui.includes(':host([data-ax-palette="' + p + '"])')));
 

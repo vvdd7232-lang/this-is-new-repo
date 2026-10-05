@@ -500,11 +500,15 @@
  *
  * ПОЧЕМУ БЛОК В КОНЦЕ ФАЙЛА (а не рядом с базовыми токенами):
  * страница настроек в авто-режиме красит акцент через .ax-ui-auto внутри
- * @media prefers-color-scheme — специфичность (0,2,1) против наших (0,1,0).
- * Ниже перекрываем это более высокой специфичностью (селекторы вида
- * .ax-ui-auto[data-ax-palette=...] дают (0,3,0)) и тем, что блок стоит после.
- * Иначе палитра молча не применялась бы в тёмной системной теме: акцент
- * менялся, а страница оставалась прежней.
+ * @media prefers-color-scheme: dark. Ниже перекрываем это тем, что блок стоит
+ * после, а селекторы привязаны к html, где реально живёт атрибут палитры:
+ *   html[data-ax-palette="X"] .ax-ui-auto        — (0,2,1) против (0,2,1) у
+ *   html:not([data-ax-theme="light"]) .ax-ui-auto; выигрывает порядок.
+ *
+ * ВАЖНО: нельзя писать .ax-ui-auto[data-ax-palette="X"] — такой селектор
+ * требует атрибут на самом <body>, а JS ставит его на <html>. Правило молча
+ * не срабатывало: токен на <html> менялся, а весь интерфейс красился из
+ * --ax-accent, объявленного на <body>.
  *
  * У каждой палитры свой вариант для тёмной темы — на тёмном фоне светлый
  * акцент нечитаем.
@@ -513,7 +517,7 @@
 /* Индиго — исходная палитра, совпадает с базовыми токенами. */
 [data-ax-palette="indigo"],
 :host([data-ax-palette="indigo"]),
-.ax-ui-auto[data-ax-palette="indigo"] {
+html[data-ax-palette="indigo"] .ax-ui-auto {
   --ax-accent: #5b5bd6;
   --ax-accent-strong: #4a48c4;
   --ax-accent-soft: rgba(91, 91, 214, 0.12);
@@ -521,7 +525,7 @@
 }
 [data-ax-theme="dark"] [data-ax-palette="indigo"],
 [data-ax-theme="dark"][data-ax-palette="indigo"],
-[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="indigo"],
+html[data-ax-theme="dark"][data-ax-palette="indigo"] .ax-ui-auto,
 :host([data-ax-theme="dark"][data-ax-palette="indigo"]) {
   --ax-accent: #8b8bf5;
   --ax-accent-strong: #a3a3ff;
@@ -532,7 +536,7 @@
 /* Океан — глубокий синий. Спокойнее индиго, хорош на длинных логах. */
 [data-ax-palette="ocean"],
 :host([data-ax-palette="ocean"]),
-.ax-ui-auto[data-ax-palette="ocean"] {
+html[data-ax-palette="ocean"] .ax-ui-auto {
   --ax-accent: #0b6bcb;
   --ax-accent-strong: #0957a6;
   --ax-accent-soft: rgba(11, 107, 203, 0.12);
@@ -541,7 +545,7 @@
 }
 [data-ax-theme="dark"] [data-ax-palette="ocean"],
 [data-ax-theme="dark"][data-ax-palette="ocean"],
-[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="ocean"],
+html[data-ax-theme="dark"][data-ax-palette="ocean"] .ax-ui-auto,
 :host([data-ax-theme="dark"][data-ax-palette="ocean"]) {
   --ax-accent: #4da3ff;
   --ax-accent-strong: #79bcff;
@@ -553,7 +557,7 @@
 /* Изумруд — зелёный акцент, ассоциация с терминалом и git. */
 [data-ax-palette="emerald"],
 :host([data-ax-palette="emerald"]),
-.ax-ui-auto[data-ax-palette="emerald"] {
+html[data-ax-palette="emerald"] .ax-ui-auto {
   --ax-accent: #0b8f52;
   --ax-accent-strong: #077642;
   --ax-accent-soft: rgba(11, 143, 82, 0.12);
@@ -561,7 +565,7 @@
 }
 [data-ax-theme="dark"] [data-ax-palette="emerald"],
 [data-ax-theme="dark"][data-ax-palette="emerald"],
-[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="emerald"],
+html[data-ax-theme="dark"][data-ax-palette="emerald"] .ax-ui-auto,
 :host([data-ax-theme="dark"][data-ax-palette="emerald"]) {
   --ax-accent: #34d399;
   --ax-accent-strong: #6ee7b7;
@@ -573,7 +577,7 @@
  * выделяет кнопку «Выполнить». */
 [data-ax-palette="sunset"],
 :host([data-ax-palette="sunset"]),
-.ax-ui-auto[data-ax-palette="sunset"] {
+html[data-ax-palette="sunset"] .ax-ui-auto {
   --ax-accent: #c2410c;
   --ax-accent-strong: #9a3412;
   --ax-accent-soft: rgba(194, 65, 12, 0.12);
@@ -581,7 +585,7 @@
 }
 [data-ax-theme="dark"] [data-ax-palette="sunset"],
 [data-ax-theme="dark"][data-ax-palette="sunset"],
-[data-ax-theme="dark"] .ax-ui-auto[data-ax-palette="sunset"],
+html[data-ax-theme="dark"][data-ax-palette="sunset"] .ax-ui-auto,
 :host([data-ax-theme="dark"][data-ax-palette="sunset"]) {
   --ax-accent: #fb923c;
   --ax-accent-strong: #fdba74;
