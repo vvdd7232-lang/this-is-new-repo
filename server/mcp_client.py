@@ -38,7 +38,7 @@ import urllib.error
 import urllib.request
 
 PROTOCOL_VERSION = '2024-11-05'
-CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.11.2'}
+CLIENT_INFO = {'name': 'ai-execute-runner', 'version': '2.11.3'}
 DEFAULT_TIMEOUT = 30.0
 MAX_TOOLS_PER_SERVER = 200
 # Потолок одной строки от MCP-сервера и глубина очереди сообщений. Без них

@@ -1165,15 +1165,22 @@ async function testConnection(userInitiated) {
   }
 }
 
+function currentPromptText() {
+  const autoEl = $('autoExecute');
+  const on = !!(autoEl && autoEl.checked);
+  return (typeof AX_buildPrompt === 'function') ? AX_buildPrompt(on) : AX_PROMPT;
+}
+
 async function copyPrompt() {
+  const text = currentPromptText();
   try {
     let ok = false;
     try {
-      await navigator.clipboard.writeText(AX_PROMPT);
+      await navigator.clipboard.writeText(text);
       ok = true;
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = AX_PROMPT;
+      ta.value = text;
       ta.style.position = 'fixed';
       ta.style.opacity = '0';
       document.body.appendChild(ta);

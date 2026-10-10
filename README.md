@@ -47,7 +47,7 @@ ai-execute-extension/
 │   ├── sniff-runner.test.js   ← сниффер языка + опасные паттерны (114 проверок)
 │   ├── detect-runner.test.js  ← распознавание execute-блоков (22)
 │   ├── view-insert.test.js    ← вставка картинок в чат (62)
-│   ├── options-bindings.test.js ← страница настроек: биндинги UI, импорт/экспорт, профили (48)
+│   ├── options-bindings.test.js ← страница настроек: биндинги UI, импорт/экспорт, профили, промпт (54)
 │   ├── panel-autopilot.test.js ← панель: shadow DOM, isTrusted, retry автопилота (38)
 │   ├── failure-explain.test.js ← перевод ошибок в понятный текст (31)
 │   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов (122)
@@ -547,7 +547,7 @@ powershell -ExecutionPolicy Bypass -File tools/shot.ps1   # → tools/shots/*.pn
 ```bash
 cd tests
 npm install          # один раз (jsdom)
-npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (725 проверок)
+npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (731 проверка)
 npm run test:server  # Python: сервер (82 проверки)
 npm run test:all     # всё вместе
 ```
@@ -570,7 +570,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.2
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.3
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

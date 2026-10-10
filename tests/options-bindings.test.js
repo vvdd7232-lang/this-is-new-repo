@@ -314,6 +314,24 @@ async function run() {
   check('«Удалить» убрал профиль из storage',
     !(store.sync.axProfiles && store.sync.axProfiles['Работа']));
 
+  console.log('\n[12] Промпт: раздел про автопилот зависит от настройки');
+  check('prompt.js отдал AX_buildPrompt', typeof w.AX_buildPrompt === 'function');
+  check('базовый промпт содержит правило execute',
+    /ТРИ ПРАВИЛА/.test(w.AX_PROMPT) && /execute/.test(w.AX_PROMPT));
+  check('базовый промпт про автопилот молчит', !/АВТОПИЛОТ/.test(w.AX_PROMPT));
+  check('версия с автопилотом содержит раздел', /АВТОПИЛОТ/.test(w.AX_buildPrompt(true)));
+  let copied = '';
+  w.navigator.clipboard = { writeText: (t) => { copied = String(t); return Promise.resolve(); } };
+  $('autoExecute').checked = false;
+  click($('copyPrompt'));
+  await waitFor(() => copied.length > 0, 2000).catch(() => {});
+  check('при выключенном автопилоте копируется базовый промпт', copied.length > 0 && !/АВТОПИЛОТ/.test(copied));
+  copied = '';
+  $('autoExecute').checked = true;
+  click($('copyPrompt'));
+  await waitFor(() => copied.length > 0, 2000).catch(() => {});
+  check('при включённом автопилоте копируется промпт с разделом', /АВТОПИЛОТ/.test(copied));
+
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
   if (failed) {

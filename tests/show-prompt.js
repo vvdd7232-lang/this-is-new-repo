@@ -1,11 +1,11 @@
-/* Печатает текст промпта, который реально копируется в чат (AX_PROMPT).
+/* Печатает текст промпта, который реально копируется в чат (AX_PROMPT),
+ * а также вариант с разделом про автопилот.
  * Запуск: node show-prompt.js */
 'use strict';
-const fs = require('fs');
-const path = require('path');
-const src = fs.readFileSync(path.join(__dirname, '..', 'extension', 'prompt.js'), 'utf8');
-const AX_PROMPT = eval(src.replace('const AX_PROMPT', 'var AX_PROMPT') + '\nAX_PROMPT');
-console.log('символов: ' + AX_PROMPT.length);
-const i = AX_PROMPT.indexOf('11. ПРОСМОТР');
-console.log('--- пункт 11 ---');
-console.log(AX_PROMPT.slice(i, AX_PROMPT.indexOf('Формат моего ответа')).trimEnd());
+const { AX_PROMPT, AX_AUTOPILOT_SECTION, AX_buildPrompt } = require('../extension/prompt.js');
+console.log('символов (базовый): ' + AX_PROMPT.length);
+console.log('символов (с автопилотом): ' + AX_buildPrompt(true).length);
+console.log('--- базовый промпт ---');
+console.log(AX_PROMPT);
+console.log('\n--- раздел про автопилот ---');
+console.log(AX_AUTOPILOT_SECTION);

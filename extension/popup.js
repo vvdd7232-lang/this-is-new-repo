@@ -145,14 +145,18 @@ $('save').onclick = async () => {
 $('ping').onclick = ping;
 
 $('copyPrompt').onclick = async () => {
+  const autoEl = $('autoExecute');
+  const promptText = (typeof AX_buildPrompt === 'function')
+    ? AX_buildPrompt(!!(autoEl && autoEl.checked))
+    : AX_PROMPT;
   try {
     let ok = false;
     try {
-      await navigator.clipboard.writeText(AX_PROMPT);
+      await navigator.clipboard.writeText(promptText);
       ok = true;
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = AX_PROMPT;
+      ta.value = promptText;
       ta.style.position = 'fixed';
       ta.style.opacity = '0';
       document.body.appendChild(ta);

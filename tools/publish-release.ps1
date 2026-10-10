@@ -3,7 +3,7 @@
 # Токен в вывод не попадает — он живёт только в переменной внутри процесса.
 # Заголовок релиза. Версия берётся из параметра, текст — отсюда.
 param(
-    [string]$Tag = 'v2.11.2',
+    [string]$Tag = 'v2.11.3',
     [string]$Repo = 'vvdd7232-lang/this-is-new-repo'
 )
 
@@ -43,7 +43,7 @@ if ($existing) {
     # Именно .NET, а не Get-Content: в Windows PowerShell 5.1 файл без BOM
     # читается как ANSI, и кириллица в заметках рассыпается в «Ð‘Ñ€Ð°Ñ€».
     $body = if (Test-Path $notesPath) { [System.IO.File]::ReadAllText($notesPath, [System.Text.Encoding]::UTF8) } else { $existing.body }
-    $patch = @{ name = "$Tag — zero-touch токен и рабочая кото-тема"; body = $body } | ConvertTo-Json -Depth 5
+    $patch = @{ name = "$Tag — понятный промпт и автопилот"; body = $body } | ConvertTo-Json -Depth 5
     Invoke-RestMethod -Method Patch -Uri "https://api.github.com/repos/$Repo/releases/$releaseId" `
         -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($patch)) | Out-Null
     Write-Host "==> Описание и имя обновлены" -ForegroundColor Green
@@ -55,7 +55,7 @@ if ($existing) {
     $payload = @{
         tag_name         = $Tag
         # $Tag уже вида v2.10.0, поэтому префикс 'v' здесь лишний.
-        name             = "$Tag — zero-touch токен и рабочая кото-тема"
+        name             = "$Tag — понятный промпт и автопилот"
         body             = $body
         draft            = $false
         prerelease       = $false
