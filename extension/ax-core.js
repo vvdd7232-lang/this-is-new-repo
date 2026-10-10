@@ -48,6 +48,7 @@
     uiPalette: 'indigo',
     uiRadius: 'soft',
     uiBtnStyle: 'soft',
+    catMode: false,
     uiDensity: 'normal',
   };
   AX.settings = { ...AX.DEFAULTS };
@@ -192,7 +193,12 @@
   const AX_OWN_SEL = '.ax-exec-panel, .ax-modal, .ax-toast, .ax-view-wrap';
 
   AX.isOurNode = function (el) {
-    try { return !!(el.closest && el.closest(AX_OWN_SEL)); } catch (e) { return false; }
+    try {
+      if (el.closest && el.closest(AX_OWN_SEL)) return true;
+      const root = el.getRootNode && el.getRootNode();
+      if (root && root !== document && root.querySelector && root.querySelector(AX_OWN_SEL)) return true;
+      return false;
+    } catch (e) { return false; }
   };
 
   AX.isChatInputCandidate = function (el) {
@@ -346,7 +352,10 @@
 
   AX.noteToChat = function (text) {
     if (!AX.settings.autoInsert) return;
-    AX.insertIntoChat(text, null);
+    try {
+      const result = AX.insertIntoChat(text, null);
+      if (!result) AX.toast('⚠️ Поле чата не найдено — текст в буфере обмена');
+    } catch (e) { /* ignore */ }
   };
 
   // --- отправка сообщения в чат ---
@@ -376,12 +385,13 @@
   };
 
   AX.autoSendToChat = function (input, onSent) {
-    const done = () => { try { onSent && onSent(); } catch (e) { /* ignore */ } };
+    let sent = false;
+    const done = () => { if (!sent) { sent = true; try { onSent && onSent(); } catch (e) { /* ignore */ } } };
     setTimeout(() => {
-      if (!input || !input.isConnected) { AX.toast('Поле ввода исчезло — отправь сам'); done(); return; }
-      const btn = AX.findSendButton(input);
-      if (btn) { btn.click(); AX.toast('🤖 Результат отправлен ИИ'); done(); return; }
       try {
+        if (!input || !input.isConnected) { AX.toast('Поле ввода исчезло — отправь сам'); done(); return; }
+        const btn = AX.findSendButton(input);
+        if (btn) { btn.click(); AX.toast('🤖 Результат отправлен ИИ'); done(); return; }
         input.focus();
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
         input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
@@ -701,6 +711,111 @@
     AX.pinned = Array.isArray(list) ? list.filter((e) => e && typeof e.cmd === 'string').slice(0, 20) : [];
   };
 
+  // --- статистика и достижения ----------------------------------------------
+  // Счётчики держим в storage.local (axStats): это не секрет и не пользовательский
+  // сниппет, синхронизировать их между устройствами смысла нет — считаем работу
+  // на этой машине. Список достижений общий с настройками (ax-detector.js).
+  const STATS_KEY = 'axStats';
+  AX.STATS_KEY = STATS_KEY;
+  function defaultStats() {
+    return {
+      runs: 0, ok: 0, err: 0, blocked: 0, view: 0, auto: 0, palette: 0, night: 0,
+      runners: {}, days: {}, streak: 0, bestStreak: 0, unlocked: [], first: 0, last: 0,
+    };
+  }
+  AX.stats = defaultStats();
+
+  function dayKey(t) {
+    const d = new Date(t);
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
+  // Храним активность только за последние 90 дней, иначе объект растёт вечно.
+  function pruneDays(days) {
+    const keys = Object.keys(days).sort();
+    while (keys.length > 90) delete days[keys.shift()];
+  }
+
+  AX.loadStats = function (raw) {
+    const base = defaultStats();
+    const s = (raw && typeof raw === 'object') ? raw : {};
+    AX.stats = {
+      ...base, ...s,
+      runners: (s.runners && typeof s.runners === 'object') ? s.runners : {},
+      days: (s.days && typeof s.days === 'object') ? s.days : {},
+      unlocked: Array.isArray(s.unlocked) ? s.unlocked : [],
+    };
+  };
+
+  AX.saveStats = function () {
+    try {
+      const b = typeof browser !== 'undefined' ? browser : chrome;
+      b.storage.local.set({ [STATS_KEY]: AX.stats });
+    } catch (e) { /* ignore */ }
+  };
+
+  AX.resetStats = function () {
+    AX.stats = defaultStats();
+    AX.saveStats();
+  };
+
+  /* Записывает завершённый запуск. ok — команда/просмотр завершились успешно,
+   * status — 'done' | 'blocked' (whitelist), ctx — { auto, palette }. Любая
+   * ошибка статистики глотается: она не должна ломать сам запуск. */
+  AX.recordRun = function (runner, ok, status, ctx) {
+    try {
+      const s = AX.stats;
+      ctx = ctx || {};
+      s.runs++;
+      const blocked = status === 'blocked';
+      if (blocked) s.blocked++;
+      else if (ok) s.ok++;
+      else s.err++;
+      // Серия — только успешные. Заблокированная командой серию не рвёт: это не
+      // провал выполнения, а защита.
+      if (ok && !blocked) { s.streak++; if (s.streak > s.bestStreak) s.bestStreak = s.streak; }
+      else if (!blocked) s.streak = 0;
+      try { if (new Date().getHours() < 6) s.night++; } catch (e) { /* ignore */ }
+      const r = D.runnerValid(runner) || (runner === 'mcp' ? 'mcp' : 'shell');
+      if (r) s.runners[r] = (s.runners[r] || 0) + 1;
+      const day = dayKey(Date.now());
+      s.days[day] = (s.days[day] || 0) + 1;
+      pruneDays(s.days);
+      if (!s.first) s.first = Date.now();
+      s.last = Date.now();
+      if (ctx.auto) s.auto++;
+      if (ctx.palette) s.palette++;
+      AX.saveStats();
+      AX.checkAchievements();
+    } catch (e) { /* ignore */ }
+  };
+
+  AX.recordView = function () {
+    try {
+      AX.stats.view++;
+      AX.saveStats();
+      AX.checkAchievements();
+    } catch (e) { /* ignore */ }
+  };
+
+  // Разблокировка достижений: проходим список из ax-detector, новые отмечаем и
+  // показываем тостом. Идемпотентно — повторный вызов ничего не сделает.
+  AX.checkAchievements = function () {
+    try {
+      const s = AX.stats;
+      const ids = new Set((s.unlocked || []).map((u) => (u && u.id) || u));
+      for (const a of (D.ACHIEVEMENTS || [])) {
+        if (ids.has(a.id)) continue;
+        let passed = false;
+        try { passed = !!a.test(s); } catch (e) { passed = false; }
+        if (!passed) continue;
+        s.unlocked.push({ id: a.id, t: Date.now() });
+        try { AX.toast((a.icon || '🏆') + ' Достижение: ' + a.title, 5000); } catch (e) { /* ignore */ }
+      }
+    } catch (e) { /* ignore */ }
+  };
+
   // Единый список для палитры: закреплённые сверху, затем история.
   AX.paletteItems = function () {
     const out = [];
@@ -777,6 +892,11 @@
       const pr4 = b.storage.sync.get([PINNED_KEY]);
       if (pr4 && pr4.then) pr4.then(onPinned);
       else chrome.storage.sync.get([PINNED_KEY], onPinned);
+      // Статистика и достижения — локально.
+      const onStats = (d) => AX.loadStats(d && d[STATS_KEY]);
+      const pr5 = b.storage.local.get([STATS_KEY]);
+      if (pr5 && pr5.then) pr5.then(onStats);
+      else chrome.storage.local.get([STATS_KEY], onStats);
     } catch (e) { /* ignore */ }
   };
 
@@ -793,6 +913,7 @@
         if (area === 'local') {
           if (changes[EXEC_HIST_KEY]) AX.loadExecHistory(changes[EXEC_HIST_KEY].newValue);
           if (changes[CMD_LOG_KEY]) AX.loadCmdLog(changes[CMD_LOG_KEY].newValue);
+          if (changes[STATS_KEY]) AX.loadStats(changes[STATS_KEY].newValue);
           return;
         }
         if (area !== 'sync') return;
@@ -823,12 +944,15 @@
   };
 
   // --- индикатор звуком / notify ---
+  let _beepCtx = null;
   AX.playBeep = function (ok) {
     try {
       if (!AX.settings.soundOnComplete) return;
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      const ctx = new AC();
+      if (!_beepCtx || _beepCtx.state === 'closed') _beepCtx = new AC();
+      const ctx = _beepCtx;
+      if (ctx.state === 'suspended') ctx.resume();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -838,7 +962,6 @@
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.12);
-      setTimeout(() => { try { ctx.close(); } catch (e) { /* ignore */ } }, 300);
     } catch (e) { /* ignore */ }
   };
 
@@ -869,7 +992,7 @@
 // Атрибуты вешаем на хост: CSS внутри тени читает их через :host([...]).
 // Значения прогоняем по белому списку — атрибут попадает в разметку, и
 // произвольная строка из настроек там не нужна.
-const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset'];
+const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset', 'amethyst'];
 const UI_RADII = ['none', 'sharp', 'soft', 'round', 'pill'];
 const UI_BTN_STYLES = ['soft', 'solid', 'outline', 'flat', 'tile'];
 const UI_DENSITIES = ['compact', 'normal', 'spacious'];
@@ -890,6 +1013,10 @@ AX.applyUiTuning = function (el) {
   axUiAttr(el, 'data-ax-radius', s.uiRadius, UI_RADII, 'soft');
   axUiAttr(el, 'data-ax-btn', s.uiBtnStyle, UI_BTN_STYLES, 'soft');
   axUiAttr(el, 'data-ax-density', s.uiDensity, UI_DENSITIES, 'normal');
+  try {
+    if (s.catMode) el.setAttribute('data-ax-cat', 'on');
+    else el.removeAttribute('data-ax-cat');
+  } catch (e) { /* ignore */ }
 };
 
 AX.UI_PALETTES = UI_PALETTES;

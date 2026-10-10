@@ -412,6 +412,58 @@ async function run() {
     /ax-palette\.js/.test(fs.readFileSync(path.join(EXT_DIR, 'manifest.json'), 'utf8')) &&
     /ax-palette\.js/.test(fs.readFileSync(path.join(EXT_DIR, 'manifest.chrome.json'), 'utf8')));
 
+  console.log('\n[15] Статистика и достижения: движок и виджет');
+  const w7 = makeEnv().w;
+  await sleep(30);
+  w7.AX.resetStats();
+  w7.AX.recordRun('shell', true, 'done', {});
+  check('recordRun считает запуск', w7.AX.stats.runs === 1 && w7.AX.stats.ok === 1, w7.AX.stats.runs);
+  check('достижение «Первый запуск» разблокировано',
+    w7.AX.stats.unlocked.some((u) => (u.id || u) === 'first_run'), w7.AX.stats.unlocked);
+  for (let i = 0; i < 5; i++) w7.AX.recordRun('shell', true, 'done', {});
+  check('серия успехов растёт', w7.AX.stats.bestStreak >= 5, w7.AX.stats.bestStreak);
+  check('достижение «Пять подряд» есть',
+    w7.AX.stats.unlocked.some((u) => (u.id || u) === 'streak_5'));
+  const before = w7.AX.stats.streak;
+  w7.AX.recordRun('shell', false, 'done', {});
+  check('ошибка рвёт текущую серию', before > 0 && w7.AX.stats.streak === 0, w7.AX.stats.streak);
+  w7.AX.recordRun('shell', true, 'done', { auto: true, palette: true });
+  check('счётчики auto/palette раздельно', w7.AX.stats.auto === 1 && w7.AX.stats.palette === 1, w7.AX.stats);
+  w7.AX.recordView();
+  check('recordView считает картинку', w7.AX.stats.view === 1, w7.AX.stats.view);
+  ['python', 'node', 'powershell', 'shell'].forEach((r) => w7.AX.recordRun(r, true, 'done', {}));
+  check('достижение «Полиглот» (4 среды)',
+    w7.AX.stats.unlocked.some((u) => (u.id || u) === 'polyglot'));
+  const nUnlocked = w7.AX.stats.unlocked.length;
+  w7.AX.checkAchievements();
+  check('повторная проверка не дублирует достижения', w7.AX.stats.unlocked.length === nUnlocked);
+  const state = w7.AXDetector.achievementState(w7.AX.stats);
+  check('achievementState отдаёт прогресс', state.length >= 10 &&
+    state.every((a) => typeof a.have === 'number' && typeof a.goal === 'number'), state.length);
+  check('first_run в состоянии виджета отмечен открытым',
+    state.find((a) => a.id === 'first_run').unlocked === true);
+
+  const lvl0 = w7.AXDetector.levelFor({});
+  check('levelFor на пустой статистике = 1 уровень', lvl0.level === 1 && lvl0.xp === 0, lvl0.level);
+  const lvl1 = w7.AXDetector.levelFor(w7.AX.stats);
+  check('XP растёт с запусками и достижениями', lvl1.xp > 0, lvl1.xp);
+  check('levelFor отдаёт прогресс до следующего уровня',
+    lvl1.pct >= 0 && lvl1.pct <= 100 && lvl1.need > 0, lvl1);
+  const lvlBig = w7.AXDetector.levelFor({ ok: 5000, view: 200, auto: 100, unlocked: new Array(12).fill(0) });
+  check('много XP даёт высокий уровень', lvlBig.level > 8, lvlBig.level);
+
+  check('карточка статистики есть в options', /id="sec-stats"/.test(optHtml) && /id="achGrid"/.test(optHtml));
+  check('раздел статистики есть в навигации', /data-nav="sec-stats"/.test(optHtml));
+  check('виджет достижений рендерится из общего списка',
+    /function renderStats/.test(optJs) && /AXDetector\.achievementState/.test(optJs));
+  check('сброс статистики подключён',
+    /id="resetStats"/.test(optHtml) && /\$\('resetStats'\)\.onclick/.test(optJs));
+  check('экспорт PDF: кнопка, обработчик и печать через iframe',
+    /id="exportPdf"/.test(optHtml) && /function exportJournalPdf/.test(optJs) &&
+    /\$\('exportPdf'\)\.onclick/.test(optJs) && /win\.print\(\)/.test(optJs));
+  check('PDF-экспорт маскирует секреты',
+    /function journalHtml/.test(optJs) && /redactSecrets/.test(optJs));
+
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
   if (failed) {

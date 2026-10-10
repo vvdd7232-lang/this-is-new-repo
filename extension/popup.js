@@ -27,14 +27,9 @@ async function axStorageRemove(area, keys) {
   });
 }
 
-// Токен доступа — секрет: только storage.local (не sync, который уезжает в облако).
-async function getAuthToken() {
-  try {
-    const t = await axStorageGet('local', ['authToken']);
-    return (t && t.authToken) || '';
-  } catch (e) { return ''; }
-}
 // Popup: быстрые настройки + проверка сервера + копирование промпта.
+// Токен доступа больше не вводится руками: расширение получает его из ссылки
+// server.py (#ax-setup) и хранит в storage.local; ни поле, ни чтение тут не нужны.
 // Остальные параметры — на странице настроек (options.html).
 const $ = (id) => document.getElementById(id);
 let loaded = false; // save блокируется, пока настройки не прочитаны
@@ -47,17 +42,14 @@ function clamp(v, lo, hi, fb) {
 
 async function load() {
   let d;
-  let token = '';
   try {
     d = await axStorageGet('sync', ['serverUrl', 'timeout', 'requireConfirm', 'autoExecute', 'autoInsert', 'autoSend', 'autoDelay']);
-    token = await getAuthToken();
   } catch {
     $('status').className = 'status err';
     $('status').textContent = '❌ Не удалось прочитать настройки (расширение обновляется? закрой попап и открой заново)';
     return;
   }
   if (d.serverUrl) $('serverUrl').value = d.serverUrl;
-  if (token) $('authToken').value = token;
   if (d.timeout != null) $('timeout').value = d.timeout;
   $('requireConfirm').checked = d.requireConfirm !== false;
   $('autoExecute').checked = d.autoExecute === true;
@@ -82,7 +74,7 @@ async function ping() {
         const info = resp.info || {};
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
-          box.textContent = '⚠️ Сервер на связи, но токен неверный. Проверь поле «Токен доступа».';
+          box.textContent = '⚠️ Сервер на связи, но токен не принят. Открой ссылку из консоли server.py.';
         } else if (info.auth_required && info.auth_ok === true) {
           box.className = 'status ok';
           box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
@@ -105,7 +97,7 @@ async function ping() {
         const info = resp.info || {};
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
-          box.textContent = '⚠️ Сервер на связи, но токен неверный. Проверь поле «Токен доступа».';
+          box.textContent = '⚠️ Сервер на связи, но токен не принят. Открой ссылку из консоли server.py.';
         } else if (info.auth_required && info.auth_ok === true) {
           box.className = 'status ok';
           box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
@@ -144,7 +136,7 @@ $('save').onclick = async () => {
     autoSend,
     autoDelay: clamp($('autoDelay').value, 0, 30, 3),
   });
-  await axStorageSet('local', { authToken: ($('authToken').value || '').trim() });
+  // Токен не трогаем: его кладёт в storage.local ссылка из server.py (#ax-setup).
   try { await axStorageRemove('sync', ['authToken']); } catch (e) { /* старые версии */ }
   updateWarn();
   ping();

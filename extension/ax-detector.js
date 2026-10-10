@@ -744,11 +744,82 @@
     return null;
   }
 
+  // ------------------------------------------------------------------ достижения
+  // Список общий для контент-скрипта (разблокировка и тост) и страницы настроек
+  // (виджет статистики). «goal/have» нужны виджету для полоски прогресса.
+  // Секретов и адресов тут нет — только счётчики, поэтому держать список в
+  // ax-detector безопасно: он грузится и в options, и в content.
+  const ACHIEVEMENTS = [
+    { id: 'first_run', icon: '🚀', title: 'Первый запуск', desc: 'Выполнить первую команду',
+      goal: 1, have: (s) => s.runs || 0, test: (s) => (s.runs || 0) >= 1 },
+    { id: 'runs_10', icon: '🐾', title: 'Десять команд', desc: '10 запусков',
+      goal: 10, have: (s) => s.runs || 0, test: (s) => (s.runs || 0) >= 10 },
+    { id: 'runs_100', icon: '💯', title: 'Сотня', desc: '100 запусков',
+      goal: 100, have: (s) => s.runs || 0, test: (s) => (s.runs || 0) >= 100 },
+    { id: 'streak_5', icon: '🔥', title: 'Пять подряд', desc: '5 успешных запусков подряд',
+      goal: 5, have: (s) => s.bestStreak || 0, test: (s) => (s.bestStreak || 0) >= 5 },
+    { id: 'streak_20', icon: '⚡', title: 'Без промаха', desc: '20 успешных запусков подряд',
+      goal: 20, have: (s) => s.bestStreak || 0, test: (s) => (s.bestStreak || 0) >= 20 },
+    { id: 'polyglot', icon: '🗣️', title: 'Полиглот', desc: 'Использовать shell, python, node и powershell',
+      goal: 4, have: (s) => { const r = s.runners || {}; return ['shell', 'python', 'node', 'powershell'].filter((k) => (r[k] || 0) > 0).length; },
+      test: (s) => { const r = s.runners || {}; return ['shell', 'python', 'node', 'powershell'].every((k) => (r[k] || 0) > 0); } },
+    { id: 'night_owl', icon: '🦉', title: 'Ночная смена', desc: '5 запусков между 0:00 и 6:00',
+      goal: 5, have: (s) => s.night || 0, test: (s) => (s.night || 0) >= 5 },
+    { id: 'view_20', icon: '🖼️', title: 'Художник', desc: '20 картинок, вставленных в чат',
+      goal: 20, have: (s) => s.view || 0, test: (s) => (s.view || 0) >= 20 },
+    { id: 'palette_25', icon: '⌨️', title: 'Мастер палитры', desc: '25 запусков из палитры команд',
+      goal: 25, have: (s) => s.palette || 0, test: (s) => (s.palette || 0) >= 25 },
+    { id: 'auto_50', icon: '🤖', title: 'Автопилот', desc: '50 автозапусков',
+      goal: 50, have: (s) => s.auto || 0, test: (s) => (s.auto || 0) >= 50 },
+    { id: 'marathon', icon: '🏃', title: 'Марафон', desc: '20 команд за один день',
+      goal: 20, have: (s) => Math.max(0, ...Object.values(s.days || {}).map((v) => v || 0)),
+      test: (s) => Object.values(s.days || {}).some((v) => (v || 0) >= 20) },
+    { id: 'regular', icon: '📅', title: 'Верный спутник', desc: 'Запуски в 7 разных дней',
+      goal: 7, have: (s) => Object.keys(s.days || {}).length, test: (s) => Object.keys(s.days || {}).length >= 7 },
+  ];
+
+  // Список для виджета: добавляет флаг unlocked и текущий прогресс.
+  function achievementState(stats) {
+    const s = stats || {};
+    const unlocked = Array.isArray(s.unlocked) ? s.unlocked : [];
+    const ids = new Set(unlocked.map((u) => (u && u.id) || u));
+    return ACHIEVEMENTS.map((a) => {
+      let have = 0;
+      try { have = a.have ? a.have(s) : 0; } catch (e) { have = 0; }
+      return { id: a.id, icon: a.icon, title: a.title, desc: a.desc, goal: a.goal || 0, have: have, unlocked: ids.has(a.id) };
+    });
+  }
+
+  // Опыт и уровни — надстройка над достижениями. XP и уровень не хранятся
+  // отдельно: их всегда можно восстановить из счётчиков и открытых достижений,
+  // поэтому статистика не разъезжается при правках формулы.
+  function levelXp(s) {
+    s = s || {};
+    const unlocked = Array.isArray(s.unlocked) ? s.unlocked.length : 0;
+    return (s.ok || 0) * 12 + (s.err || 0) * 3 + (s.view || 0) * 5 +
+      (s.auto || 0) * 4 + (s.palette || 0) * 2 + unlocked * 50;
+  }
+
+  function levelFor(stats) {
+    const xp = levelXp(stats);
+    let level = 1;
+    let need = 100;   // XP до следующего уровня; каждый следующий дороже на ~45%
+    let base = 0;     // XP, «съеденный» пройденными уровнями
+    while (xp >= base + need && level < 99) {
+      base += need;
+      level += 1;
+      need = Math.round(need * 1.45);
+    }
+    const into = xp - base;
+    return { level: level, xp: xp, into: into, need: need, pct: Math.min(100, Math.round((into / need) * 100)) };
+  }
+
   return {
     EXEC_LANGS, RUNNER_OPTIONS,
     normalizeWhitespace, isDangerous, isHardDangerous, dangerLevel, stripStringLiterals, runnerValid, normLang,
     mcpToolDanger, mcpBlockDanger,
     unquotedSegments, hasDangerousSignature, describeFailure, redactSecrets, SECRET_MASK,
     sniffRunner, getCodeText, detectRunner, detectFallback,
+    ACHIEVEMENTS, achievementState, levelXp, levelFor,
   };
 });

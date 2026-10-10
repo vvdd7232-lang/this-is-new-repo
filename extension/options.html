@@ -246,6 +246,72 @@
   .search-empty.on { display: block; }
 
   .row-inline { display: flex; gap: var(--ax-s-2); align-items: center; flex-wrap: wrap; }
+  .row-inline .spacer { margin-left: auto; }
+
+  /* Виджет статистики и достижений */
+  .ax-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: var(--ax-s-2); margin: var(--ax-s-2) 0 var(--ax-s-3);
+  }
+  .ax-stat {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 12px; border: 1px solid var(--ax-border);
+    border-radius: var(--ax-r-md); background: var(--ax-surface-2);
+  }
+  .ax-stat b {
+    font-size: var(--ax-fs-lg); line-height: 1.1; color: var(--ax-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .ax-stat span { font-size: var(--ax-fs-xs); color: var(--ax-text-muted); }
+  .ax-ach {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: var(--ax-s-2); margin-top: var(--ax-s-2);
+  }
+  .ax-ach-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 12px; border: 1px solid var(--ax-border);
+    border-radius: var(--ax-r-md); background: var(--ax-surface);
+    opacity: 0.55;
+  }
+  .ax-ach-item.on { opacity: 1; border-color: var(--ax-accent-ring); background: var(--ax-accent-soft); }
+  .ax-ach-ico { font-size: 18px; line-height: 1.2; flex: 0 0 auto; }
+  .ax-ach-txt { min-width: 0; flex: 1 1 auto; }
+  .ax-ach-txt b { display: block; font-size: var(--ax-fs-sm); }
+  .ax-ach-txt i { display: block; font-style: normal; font-size: var(--ax-fs-xs); color: var(--ax-text-muted); }
+  .ax-ach-bar { height: 4px; margin-top: 6px; border-radius: 999px; background: var(--ax-border); overflow: hidden; }
+  .ax-ach-bar i { display: block; height: 100%; background: var(--ax-accent); }
+
+  /* Уровень и полоса опыта (надстройка над достижениями) */
+  .ax-level {
+    display: flex; gap: var(--ax-s-3); align-items: center;
+    margin: var(--ax-s-3) 0 var(--ax-s-2);
+  }
+  .ax-level-badge {
+    flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-width: 64px; padding: 8px 12px; border-radius: var(--ax-r-md);
+    background: var(--ax-accent-soft); border: 1px solid var(--ax-accent-ring);
+  }
+  .ax-level-badge b { font-size: 22px; line-height: 1; color: var(--ax-accent); font-variant-numeric: tabular-nums; }
+  .ax-level-badge span { font-size: var(--ax-fs-xs); color: var(--ax-text-muted); margin-top: 2px; }
+  .ax-level-meta { flex: 1 1 auto; min-width: 0; }
+  .ax-level-top {
+    display: flex; justify-content: space-between; gap: var(--ax-s-2);
+    font-size: var(--ax-fs-xs); color: var(--ax-text-muted); margin-bottom: 5px;
+  }
+  .ax-level-bar { height: 8px; border-radius: 999px; background: var(--ax-surface-2); border: 1px solid var(--ax-border); overflow: hidden; }
+  .ax-level-bar i { display: block; height: 100%; width: 0; background: var(--ax-accent); transition: width 0.4s var(--ax-ease); }
+
+  /* Профили настроек */
+  .ax-profiles { display: flex; flex-direction: column; gap: var(--ax-s-2); margin-top: var(--ax-s-2); }
+  .ax-prof-item {
+    display: flex; gap: var(--ax-s-2); align-items: center;
+    padding: 8px 10px; border: 1px solid var(--ax-border); border-radius: var(--ax-r-md);
+    background: var(--ax-surface);
+  }
+  .ax-prof-item b { font-size: var(--ax-fs-sm); }
+  .ax-prof-item .desc { margin: 0; }
+  .ax-prof-item .spacer { margin-left: auto; }
+  .ax-prof-empty { font-size: var(--ax-fs-xs); color: var(--ax-text-muted); }
   .ax-btn svg { width: 15px; height: 15px; }
   .kbd-inline {
     display: inline-block; font-family: var(--ax-font-mono); font-size: 11px;
@@ -282,6 +348,8 @@
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20.5v-11m0 0 4 4m-4-4-4 4M4 4.5h16"/></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3.5v5m6-5v5M6.5 8.5h11v3a5.5 5.5 0 0 1-11 0zM12 17v3.5"/></symbol>
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v4a5 5 0 0 1-10 0zM7 6H4.5a2.5 2.5 0 0 0 2.5 5M17 6h2.5a2.5 2.5 0 0 1-2.5 5M12 15v3.5M8.5 21h7M10 15h4"/></symbol>
+    <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 9V4h10v5M7 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v6H7z"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
     <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 9.5v4m0 3.5h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.8 13.5h9.4L17.5 7"/></symbol>
@@ -320,7 +388,9 @@
     <a href="#sec-limits" data-nav="sec-limits"><svg><use href="#i-ruler"></use></svg>Лимиты вывода</a>
     <a href="#sec-notify" data-nav="sec-notify"><svg><use href="#i-bell"></use></svg>Уведомления</a>
     <a href="#sec-look" data-nav="sec-look"><svg><use href="#i-palette"></use></svg>Внешний вид</a>
-    <a href="#sec-prompt" data-nav="sec-prompt"><svg><use href="#i-prompt"></use></svg>Промпт для ИИ</a>
+        <a href="#sec-stats" data-nav="sec-stats"><svg><use href="#i-trophy"></use></svg>Статистика</a>
+        <a href="#sec-profiles" data-nav="sec-profiles"><svg><use href="#i-sliders"></use></svg>Профили</a>
+        <a href="#sec-prompt" data-nav="sec-prompt"><svg><use href="#i-prompt"></use></svg>Промпт для ИИ</a>
     <a href="#sec-exp" data-nav="sec-exp"><svg><use href="#i-plug"></use></svg>Экспериментальное</a>
   </nav>
 
@@ -332,7 +402,7 @@
       <summary>
         <span class="card-ico"><svg><use href="#i-server"></use></svg></span>
         Сервер и доступ
-        <span class="card-hint">порт, рабочая папка, токен</span>
+        <span class="card-hint">порт, рабочая папка</span>
         <svg class="chev"><use href="#i-chev"></use></svg>
       </summary>
       <div class="body">
@@ -351,11 +421,6 @@
           <label class="title" for="defaultCwd">Рабочая папка для команд</label>
           <input type="text" id="defaultCwd" placeholder="например: C:\Users\Имя\projects" spellcheck="false">
           <div class="desc">Пусто = папка, из которой запущен сервер. Папка должна существовать, иначе сервер вернёт «cwd not found».</div>
-        </div>
-        <div class="field">
-          <label class="title" for="authToken">Токен доступа</label>
-          <input type="password" id="authToken" placeholder="вставьте токен из консоли server.py" spellcheck="false">
-          <div class="desc">Если сервер запущен с токеном (по умолчанию), скопируй его из вывода <code>python server.py</code> — строка «Токен доступа: …». Хранится только локально (<code>storage.local</code>) и не синхронизируется между устройствами.</div>
         </div>
         <div class="field">
           <div class="row-inline">
@@ -492,6 +557,7 @@
             <span class="title">Журнал выполнений</span>
             <span class="ax-chip ax-chip-accent" id="journalCount">…</span>
             <button id="exportJournal" class="ax-btn"><svg class="ax-ico"><use href="#i-download"></use></svg>Экспорт в markdown</button>
+            <button id="exportPdf" class="ax-btn"><svg class="ax-ico"><use href="#i-print"></use></svg>Экспорт в PDF</button>
             <button id="clearJournal" class="ax-btn"><svg class="ax-ico"><use href="#i-trash"></use></svg>Очистить</button>
           </div>
           <div class="desc">Хранит последние 30 команд: время, среда, код возврата. Вывод команд не сохраняется, токен доступа в журнал не попадает. Экспорт пригодится, если нужно вспомнить, что именно запускалось.</div>
@@ -610,8 +676,20 @@
                 <span class="ax-swatch-dots"><i style="background:#c2410c"></i><i style="background:#fb923c"></i></span>
                 <span class="ax-swatch-name">Закат</span>
               </button>
+              <button type="button" class="ax-palette-swatch" data-v="amethyst" title="Аметист — фиолетовый, мягче индиго">
+                <span class="ax-swatch-dots"><i style="background:#8b5cf6"></i><i style="background:#a78bfa"></i></span>
+                <span class="ax-swatch-name">Аметист</span>
+              </button>
             </div>
             <div class="desc">Меняет акцентный цвет. Поверхности и текст остаются за темой — поэтому палитра читается и в светлой, и в тёмной.</div>
+          </div>
+
+          <div class="field">
+            <label class="title">Кото-режим</label>
+            <div class="check"><input type="checkbox" id="catMode">
+              <label for="catMode"><b>Ушки на кнопках</b> — кошачий декор панелей и модалок</label>
+            </div>
+            <div class="desc">Добавляет ушки на кнопки, лапки на панель и хвостик у заголовка. Работает поверх любой палитры.</div>
           </div>
 
           <div class="field">
@@ -662,6 +740,63 @@
           <label for="soundOnComplete"><b>Звук при завершении команды</b>
           <span class="d">Короткий сигнал: успех — выше, ошибка — ниже.</span></label>
         </div>
+      </div>
+    </details>
+
+    <details class="card" id="sec-stats" open>
+      <summary>
+        <span class="card-ico"><svg><use href="#i-trophy"></use></svg></span>
+        Статистика и достижения
+        <span class="card-hint">считается локально, нигде не публикуется</span>
+        <svg class="chev"><use href="#i-chev"></use></svg>
+      </summary>
+      <div class="body">
+        <div class="sub">Счётчики ведутся в браузере (<code>storage.local</code>) и никуда не отправляются. Команды и их вывод в статистику не попадают — только факты запусков.</div>
+        <div class="ax-level">
+          <div class="ax-level-badge"><b id="lvlNum">1</b><span>уровень</span></div>
+          <div class="ax-level-meta">
+            <div class="ax-level-top"><span>Опыт за запуски и достижения</span><span id="lvlXp">0 / 100 XP</span></div>
+            <div class="ax-level-bar"><i id="lvlBar"></i></div>
+          </div>
+        </div>
+        <div class="ax-stats" id="statsGrid">
+          <div class="ax-stat"><b id="statRuns">0</b><span>запусков</span></div>
+          <div class="ax-stat"><b id="statOk">0</b><span>успешных</span></div>
+          <div class="ax-stat"><b id="statErr">0</b><span>с ошибкой</span></div>
+          <div class="ax-stat"><b id="statStreak">0</b><span>серия успехов</span></div>
+          <div class="ax-stat"><b id="statViews">0</b><span>картинок в чат</span></div>
+          <div class="ax-stat"><b id="statDays">0</b><span>активных дней</span></div>
+        </div>
+        <div class="field">
+          <div class="row-inline">
+            <span class="title">Достижения</span>
+            <span class="ax-chip" id="achCount">…</span>
+            <span class="spacer"></span>
+            <button id="resetStats" class="ax-btn" type="button"><svg class="ax-ico"><use href="#i-trash"></use></svg>Сбросить статистику</button>
+          </div>
+          <div class="ax-ach" id="achGrid"></div>
+          <div class="desc">Открываются по мере работы: серии успешных запусков, ночные запуски, разные среды, картинки в чат. В момент разблокировки расширение показывает тост.</div>
+        </div>
+      </div>
+    </details>
+
+    <details class="card" id="sec-profiles" open>
+      <summary>
+        <span class="card-ico"><svg><use href="#i-sliders"></use></svg></span>
+        Профили настроек
+        <span class="card-hint">наборы для разных проектов</span>
+        <svg class="chev"><use href="#i-chev"></use></svg>
+      </summary>
+      <div class="body">
+        <div class="sub">Профиль — снимок ключевых настроек: адрес и рабочая папка сервера, тема, палитра, среда, режим вывода, подтверждения. Держи отдельный набор под каждую задачу и переключайся одним кликом.</div>
+        <div class="field">
+          <div class="row-inline">
+            <input type="text" id="profileName" placeholder="название профиля, напр. «Работа»" spellcheck="false" style="flex:1 1 220px">
+            <button id="saveProfile" class="ax-btn" type="button"><svg class="ax-ico"><use href="#i-download"></use></svg>Сохранить текущие настройки</button>
+          </div>
+        </div>
+        <div class="ax-profiles" id="profilesList"></div>
+        <div class="desc">Профили хранятся в <code>storage.sync</code> и синхронизируются между устройствами. Токен доступа в профиль не входит — его расширение получает само.</div>
       </div>
     </details>
 

@@ -80,7 +80,9 @@
     if (!AX.assumeTrustedEvents && e.isTrusted === false) return;
     const btn = e.target.closest && e.target.closest('[data-act]');
     if (btn) {
-      const ix = +btn.closest('.ax-palette-item').dataset.ix;
+      const item = btn.closest('.ax-palette-item');
+      if (!item) return;
+      const ix = +item.dataset.ix;
       const act = btn.dataset.act;
       if (act === 'pin') { togglePinAt(ix); return; }
       if (act === 'run') { execute(items[ix], false); return; }
@@ -291,7 +293,7 @@
     // Подтверждение, защита от параллельных запусков и запись в журнал — в
     // ax-panel: палитра только передаёт команду и флаг «без диалога».
     try {
-      Promise.resolve(AX.runArbitrary(item.cmd, runner, { skipConfirm: !!skipConfirm }))
+      Promise.resolve(AX.runArbitrary(item.cmd, runner, { skipConfirm: !!skipConfirm, palette: true }))
         .catch((e) => console.warn('[AX] palette run:', e));
     } catch (e) {
       console.warn('[AX] palette run:', e);

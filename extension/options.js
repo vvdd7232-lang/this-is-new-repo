@@ -51,7 +51,8 @@ const DEFAULTS = {
   browserNotify: false,
   echoMode: 'short',
   previewLines: 12,
-  paletteEnabled: true,
+    paletteEnabled: true,
+    catMode: false,
   noisyCollapse: true,
   // MCP — экспериментальная функция, поэтому выключена по умолчанию.
   mcpEnabled: false,
@@ -92,12 +93,8 @@ function clampNum(v, lo, hi, fb) {
 
 async function load() {
   let d;
-  let token = '';
   try {
     d = await axStorageGet('sync', Object.keys(DEFAULTS));
-    // Токен живёт в storage.local (не в sync — см. комментарий в background.js).
-    const t = await axStorageGet('local', ['authToken']);
-    token = (t && t.authToken) || '';
   } catch {
     statusMsg('❌ Не удалось прочитать настройки (расширение обновляется? закрой страницу и открой заново)', 'err');
     return;
@@ -116,11 +113,11 @@ async function load() {
   $('maxOutputChars').value = d.maxOutputChars != null ? d.maxOutputChars : DEFAULTS.maxOutputChars;
   $('showToasts').checked = d.showToasts !== false;
   $('defaultCwd').value = d.defaultCwd || '';
-  $('authToken').value = token;
   setSeg('uiTheme', d.uiTheme || 'auto');
   setSeg('panelSize', d.panelSize || 'normal');
   $('collapseAfterRun').checked = d.collapseAfterRun === true;
   $('soundOnComplete').checked = d.soundOnComplete === true;
+  $('catMode').checked = d.catMode === true;
   $('browserNotify').checked = d.browserNotify === true;
   setSeg('echoMode', d.echoMode || 'short');
   setSeg('uiPalette', d.uiPalette || 'indigo');
@@ -147,6 +144,8 @@ async function load() {
   } catch {}
   statusMsg('Настройки загружены. Меняй и жми «Сохранить».', '');
   try { await showJournalCount(); } catch (e) { /* ignore */ }
+  try { await renderStats(); } catch (e) { /* ignore */ }
+  try { await renderProfiles(); } catch (e) { /* ignore */ }
   // Сигнал для обработчика ссылки #ax-setup=: поля уже заполнены из storage,
   // можно безопасно применять значения из ссылки.
   try { document.dispatchEvent(new Event('ax-settings-loaded')); } catch (e) { /* ignore */ }
@@ -223,7 +222,7 @@ function bindSeg(id, onChange) {
 // ---------- оформление (палитра, скругление, кнопки, плотность) ----------
 // Здесь ax-core.js нет (он грузится только в content-script), поэтому список
 // допустимых значений продублирован. Расхождение ловит тест согласованности.
-const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset'];
+const UI_PALETTES = ['indigo', 'ocean', 'emerald', 'sunset', 'amethyst'];
 const UI_RADII = ['none', 'sharp', 'soft', 'round', 'pill'];
 const UI_BTN_STYLES = ['soft', 'solid', 'outline', 'flat', 'tile'];
 const UI_DENSITIES = ['compact', 'normal', 'spacious'];
@@ -493,8 +492,9 @@ document.addEventListener('change', (e) => {
       $('serverUrl').value = patch.serverUrl;
       await axStorageSet('sync', { serverUrl: patch.serverUrl });
     }
+    // Токен из ссылки кладём сразу в storage.local и нигде не показываем:
+    // пользователю не нужно ни видеть его, ни вводить руками.
     if (patch.authToken) {
-      $('authToken').value = patch.authToken;
       await axStorageSet('local', { authToken: patch.authToken });
       try { await axStorageRemove('sync', ['authToken']); } catch (e) { /* старые версии */ }
     }
@@ -608,6 +608,166 @@ async function clearJournal() {
     showJournalCount();
   } catch (e) {
     statusMsg('Не удалось очистить журнал: ' + e, 'err');
+  }
+}
+
+// --- Статистика и достижения -------------------------------------------------
+// Счётчики лежат в storage.local (axStats), считает их контент-скрипт при
+// запусках. Здесь — только отрисовка виджета и сброс. Метки достижений общие
+// с контентом (AXDetector.achievementState), поэтому страница не дублирует список.
+async function renderStats() {
+  let stats = {};
+  try {
+    const raw = await axStorageGet('local', ['axStats']);
+    stats = (raw && raw.axStats) || {};
+  } catch (e) { /* ignore */ }
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = String(v); };
+  set('statRuns', stats.runs || 0);
+  set('statOk', stats.ok || 0);
+  set('statErr', stats.err || 0);
+  set('statStreak', stats.bestStreak || 0);
+  set('statViews', stats.view || 0);
+  set('statDays', Object.keys(stats.days || {}).length);
+
+  // Уровень и полоса опыта считаются из тех же счётчиков (см. AXDetector.levelFor).
+  let lvl = { level: 1, into: 0, need: 100, pct: 0 };
+  try { lvl = AXDetector.levelFor(stats); } catch (e) { /* ignore */ }
+  const lvlNum = $('lvlNum');
+  if (lvlNum) lvlNum.textContent = String(lvl.level);
+  const lvlXp = $('lvlXp');
+  if (lvlXp) lvlXp.textContent = lvl.into + ' / ' + lvl.need + ' XP';
+  const lvlBar = $('lvlBar');
+  if (lvlBar) lvlBar.style.width = lvl.pct + '%';
+
+  const grid = $('achGrid');
+  if (!grid) return;
+  grid.textContent = '';
+  let all = [];
+  try { all = AXDetector.achievementState(stats); } catch (e) { all = []; }
+  const opened = all.filter((a) => a.unlocked).length;
+  const cnt = $('achCount');
+  if (cnt) cnt.textContent = opened + ' из ' + all.length;
+  all.forEach((a) => {
+    const item = document.createElement('div');
+    item.className = 'ax-ach-item' + (a.unlocked ? ' on' : '');
+    const ico = document.createElement('span');
+    ico.className = 'ax-ach-ico';
+    ico.textContent = a.unlocked ? a.icon : '🔒';
+    const txt = document.createElement('div');
+    txt.className = 'ax-ach-txt';
+    const b = document.createElement('b');
+    b.textContent = a.title;
+    const desc = document.createElement('i');
+    desc.textContent = a.desc;
+    txt.appendChild(b);
+    txt.appendChild(desc);
+    if (!a.unlocked && a.goal > 1) {
+      const bar = document.createElement('div');
+      bar.className = 'ax-ach-bar';
+      const fill = document.createElement('i');
+      fill.style.width = Math.min(100, Math.round(((a.have || 0) / a.goal) * 100)) + '%';
+      bar.appendChild(fill);
+      txt.appendChild(bar);
+    }
+    item.appendChild(ico);
+    item.appendChild(txt);
+    grid.appendChild(item);
+  });
+}
+
+async function resetStats() {
+  clearSticky();
+  if (!confirm('Сбросить статистику и достижения?')) return;
+  try {
+    await axStorageRemove('local', ['axStats']);
+    await renderStats();
+    statusMsg('Статистика и достижения сброшены', 'ok');
+  } catch (e) {
+    statusMsg('Не удалось сбросить статистику: ' + e, 'err');
+  }
+}
+
+// --- Экспорт журнала в PDF ---------------------------------------------------
+// Печатаем отдельный HTML-документ через скрытый iframe: в системном диалоге
+// печати пользователь выбирает «Сохранить как PDF». Так не нужны внешние
+// PDF-библиотеки (их пришлось бы тащить в расширение и обновлять).
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function journalHtml(entries, secrets) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmtTime = (t) => {
+    const d = new Date(t || Date.now());
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  };
+  const safe = (v) => {
+    const text = String(v == null ? '' : v);
+    try { return AXDetector.redactSecrets(text, secrets); } catch (e) { return text; }
+  };
+  const list = Array.isArray(entries) ? entries : [];
+  let ver = '?';
+  try { ver = axApi.runtime.getManifest().version; } catch (e) { /* ignore */ }
+  const rows = list.map((e, i) => {
+    const code = (typeof e.exit === 'number') ? String(e.exit) : (e.status || '');
+    return '<tr><td>' + (i + 1) + '</td><td>' + escapeHtml(fmtTime(e.t)) + '</td><td><code>' +
+      escapeHtml(e.runner || 'shell') + '</code></td><td>' + escapeHtml(code) + '</td></tr>' +
+      '<tr class="cmd"><td colspan="4"><code>' + escapeHtml(safe(e.cmd)) + '</code></td></tr>';
+  }).join('');
+  return '<!doctype html><html lang="ru"><head><meta charset="utf-8">' +
+    '<title>Журнал выполнений — AI Execute Runner</title><style>' +
+    'body{font:13px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;margin:24px;color:#181b26}' +
+    'h1{font-size:19px;margin:0 0 4px}p.meta{color:#5b6172;margin:0 0 16px;font-size:12px}' +
+    'table{width:100%;border-collapse:collapse;margin-bottom:18px}' +
+    'th,td{border:1px solid #d5d9e6;padding:5px 7px;text-align:left;vertical-align:top}' +
+    'th{background:#f1f3f9;font-size:12px}' +
+    'code{font-family:ui-monospace,Consolas,monospace;font-size:11px;white-space:pre-wrap;word-break:break-all}' +
+    'tr.cmd td{background:#fafbfe}' +
+    'footer{margin-top:18px;color:#5b6172;font-size:11px}' +
+    '@media print{body{margin:12mm}}' +
+    '</style></head><body>' +
+    '<h1>Журнал выполнений — AI Execute Runner</h1>' +
+    '<p class="meta">Записей: ' + list.length + ' · выгружено: ' + escapeHtml(fmtTime(Date.now())) +
+    ' · версия расширения: ' + escapeHtml(ver) + '</p>' +
+    (list.length
+      ? '<table><thead><tr><th>#</th><th>Когда</th><th>Среда</th><th>Код</th></tr></thead><tbody>' + rows + '</tbody></table>'
+      : '<p>Записей пока нет.</p>') +
+    '<footer>Команды выполнялись локально на этом ПК. Вывод команд в журнал не сохраняется, токен доступа замаскирован.</footer>' +
+    '</body></html>';
+}
+
+async function exportJournalPdf() {
+  clearSticky();
+  try {
+    const raw = await axStorageGet('local', ['axCommandLog', 'authToken']);
+    const entries = (raw && Array.isArray(raw.axCommandLog)) ? raw.axCommandLog : [];
+    if (!entries.length) { statusMsg('Журнал пуст — сначала выполни что-нибудь', ''); return; }
+    const html = journalHtml(entries, [raw && raw.authToken]);
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+    document.body.appendChild(frame);
+    const doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+    if (!doc) throw new Error('нет доступа к фрейму печати');
+    doc.open(); doc.write(html); doc.close();
+    const win = frame.contentWindow;
+    let fired = false;
+    const run = () => {
+      if (fired) return;
+      fired = true;
+      try { win.focus(); win.print(); } catch (e) { /* ignore */ }
+      // Сам фрейм убираем позже: пока открыт диалог печати, документ должен жить.
+      setTimeout(() => { try { frame.remove(); } catch (e) { /* ignore */ } }, 60000);
+    };
+    frame.onload = () => setTimeout(run, 60);
+    if (doc.readyState === 'complete') setTimeout(run, 100);
+    setTimeout(run, 600); // страховка, если onload уже проскочил
+    statusMsg('Открыт диалог печати — выбери «Сохранить как PDF»', 'ok');
+  } catch (e) {
+    statusMsg('Не удалось подготовить PDF: ' + e, 'err');
   }
 }
 
@@ -794,7 +954,18 @@ async function mcpReport(save) {
     statusMsg('MCP: список инструментов сохранён на рабочий стол', 'ok');
   } else {
     try {
-      await AX.copyToClipboard(text);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
       if (note) note.textContent = 'Скопировано (' + (res.count || 0) +
         ' инструментов). Вставь в чат первым сообщением.';
       statusMsg('MCP: список инструментов скопирован в буфер', 'ok');
@@ -804,13 +975,14 @@ async function mcpReport(save) {
   }
 }
 
-async function save() {
-  clearSticky();
-  if (!loaded) { statusMsg('Настройки ещё не загружены — подожди секунду и попробуй снова', 'err'); return; }
+// Снимок текущих настроек из формы. Вынесено из save(), чтобы тем же набором
+// пользовались профили: «Сохранить текущие настройки» и обычное сохранение
+// должны писать ровно одно и то же.
+function collectSettings() {
   let autoInsert = $('autoInsert').checked;
   const autoSend = $('autoSend').checked;
   if (autoSend && !autoInsert) { autoInsert = true; $('autoInsert').checked = true; }
-  await axStorageSet('sync', {
+  return {
     serverUrl: $('serverUrl').value.trim() || DEFAULTS.serverUrl,
     timeout: clampNum($('timeout').value, 2, 600, 30),
     requireConfirm: $('requireConfirm').checked,
@@ -840,14 +1012,123 @@ async function save() {
     panelSize: getSeg('panelSize') || 'normal',
     collapseAfterRun: $('collapseAfterRun').checked,
     soundOnComplete: $('soundOnComplete').checked,
+    catMode: $('catMode').checked,
     browserNotify: $('browserNotify').checked,
-  });
-  // Токен — в local, и обязательно удаляем возможный старый след из sync.
-  await axStorageSet('local', { authToken: $('authToken').value.trim() });
+  };
+}
+
+async function save() {
+  clearSticky();
+  if (!loaded) { statusMsg('Настройки ещё не загружены — подожди секунду и попробуй снова', 'err'); return; }
+  await axStorageSet('sync', collectSettings());
+  // Токен в форме не показываем и не трогаем — он приходит из ссылки server.py.
+  // На всякий случай убираем старый след из sync (в local его хранит background).
   try { await axStorageRemove('sync', ['authToken']); } catch (e) { /* старые версии */ }
   updateWarn();
   clearDirty();
   statusMsg('✅ Настройки сохранены и применены ко всем вкладкам', 'ok');
+}
+
+// --- Профили настроек --------------------------------------------------------
+// Наборы хранятся в storage.sync (маленький объект), чтобы переезжать между
+// устройствами. Профиль — тот же снимок, что пишет «Сохранить», поэтому формат
+// не расходится. Токен в снимок не входит.
+const PROFILES_KEY = 'axProfiles';
+
+async function readProfiles() {
+  try {
+    const r = await axStorageGet('sync', [PROFILES_KEY]);
+    return (r && r[PROFILES_KEY]) || {};
+  } catch (e) { return {}; }
+}
+
+async function renderProfiles() {
+  const box = $('profilesList');
+  if (!box) return;
+  const map = await readProfiles();
+  const names = Object.keys(map).sort((a, b) => a.localeCompare(b, 'ru'));
+  box.textContent = '';
+  if (!names.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ax-prof-empty';
+    empty.textContent = 'Пока нет ни одного профиля — сохрани текущие настройки под именем.';
+    box.appendChild(empty);
+    return;
+  }
+  names.forEach((name) => {
+    const item = document.createElement('div');
+    item.className = 'ax-prof-item';
+    const b = document.createElement('b');
+    b.textContent = name;
+    const info = document.createElement('span');
+    info.className = 'desc';
+    info.textContent = (map[name] && map[name].serverUrl) || '';
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    const applyBtn = document.createElement('button');
+    applyBtn.type = 'button';
+    applyBtn.className = 'ax-btn';
+    applyBtn.textContent = 'Применить';
+    applyBtn.onclick = () => applyProfile(name);
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'ax-btn';
+    delBtn.textContent = 'Удалить';
+    delBtn.onclick = () => deleteProfile(name);
+    item.appendChild(b);
+    item.appendChild(info);
+    item.appendChild(spacer);
+    item.appendChild(applyBtn);
+    item.appendChild(delBtn);
+    box.appendChild(item);
+  });
+}
+
+async function saveProfile() {
+  clearSticky();
+  const nameEl = $('profileName');
+  const name = ((nameEl && nameEl.value) || '').trim();
+  if (!name) { statusMsg('Введи название профиля', ''); return; }
+  try {
+    const map = await readProfiles();
+    const snap = collectSettings();
+    delete snap.authToken;               // секрет в профиль не кладём
+    map[name] = snap;
+    await axStorageSet('sync', { [PROFILES_KEY]: map });
+    if (nameEl) nameEl.value = '';
+    await renderProfiles();
+    statusMsg('Профиль «' + name + '» сохранён', 'ok');
+  } catch (e) {
+    statusMsg('Не удалось сохранить профиль: ' + e, 'err');
+  }
+}
+
+async function applyProfile(name) {
+  clearSticky();
+  try {
+    const map = await readProfiles();
+    const snap = map[name];
+    if (!snap) { statusMsg('Профиль не найден', 'err'); return; }
+    await axStorageSet('sync', Object.assign({}, snap));
+    await load();                        // перечитываем настройки и заполняем форму
+    statusMsg('Профиль «' + name + '» применён', 'ok');
+  } catch (e) {
+    statusMsg('Не удалось применить профиль: ' + e, 'err');
+  }
+}
+
+async function deleteProfile(name) {
+  clearSticky();
+  if (!confirm('Удалить профиль «' + name + '»?')) return;
+  try {
+    const map = await readProfiles();
+    delete map[name];
+    await axStorageSet('sync', { [PROFILES_KEY]: map });
+    await renderProfiles();
+    statusMsg('Профиль «' + name + '» удалён', 'ok');
+  } catch (e) {
+    statusMsg('Не удалось удалить профиль: ' + e, 'err');
+  }
 }
 
 async function resetAll() {
@@ -903,6 +1184,9 @@ $('saveTop').onclick = save;
 $('reset').onclick = resetAll;
 $('testBtn').onclick = () => testConnection(true);
 $('exportJournal').onclick = exportJournal;
+$('exportPdf').onclick = exportJournalPdf;
+$('resetStats').onclick = resetStats;
+$('saveProfile').onclick = saveProfile;
 $('clearJournal').onclick = clearJournal;
 $('copyPrompt').onclick = copyPrompt;
 $('clearHistory').onclick = async () => {

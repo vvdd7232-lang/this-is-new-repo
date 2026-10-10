@@ -115,13 +115,20 @@ console.log('\n[7] Доступность и мелочи премиальног
 check('есть видимый фокус (:focus-visible)', ui.includes(':focus-visible') && content.includes(':focus-visible'));
 check('анимации уважают prefers-reduced-motion', content.includes('prefers-reduced-motion'));
 check('статус панели использует цветной индикатор, а не только текст', content.includes('.ax-exec-status::before'));
+// Фича «бегущий кот»: во время выполнения вместо пульсирующей точки — силуэт
+// кота, который «машет» лапами сменой кадров clip-path.
+check('статус «выполняется» — бегущий кот (кадры + анимация)',
+  /\.ax-exec-status\.ax-running::before/.test(content) && /@keyframes ax-cat-run/.test(content) &&
+  /clip-path: polygon/.test(content));
+check('бегущий кот отключается при prefers-reduced-motion',
+  /prefers-reduced-motion: reduce[\s\S]{0,200}ax-exec-status\.ax-running::before/.test(content));
 check('превью команды доступно с клавиатуры (tabindex/role)', /role="button" tabindex="0"/.test(panelJs));
 check('сегмент-контрол в настройках — настоящие кнопки', /data-v="(light|dark|auto)"/.test(optionsHtml));
 check('переключатели в попапе — label+checkbox (клик по всей строке)',
   /<label class="check" for="requireConfirm">/.test(popupHtml));
 
 console.log('\n[8] Кастомизация оформления: палитры, скругление, кнопки, плотность');
-const PALETTES = ['indigo', 'ocean', 'emerald', 'sunset'];
+const PALETTES = ['indigo', 'ocean', 'emerald', 'sunset', 'amethyst'];
 const RADII = ['none', 'sharp', 'round', 'pill'];
 const BTNS = ['solid', 'outline', 'flat', 'tile'];
 const DENSITIES = ['compact', 'spacious'];
@@ -150,8 +157,8 @@ check('кнопка «Все настройки» в разделе «Внешн
 check('расширенный блок скрыт по умолчанию', /id="uiMore" hidden/.test(optionsHtml));
 check('у кнопки есть aria-controls/aria-expanded',
   /id="uiMoreBtn"[^>]*aria-expanded/.test(optionsHtml) && /id="uiMoreBtn"[^>]*aria-controls="uiMore"/.test(optionsHtml));
-check('все 4 палитры — кнопки с data-v',
-  (optionsHtml.match(/ax-palette-swatch" data-v="/g) || []).length === 4);
+check('все палитры — кнопки с data-v',
+  (optionsHtml.match(/ax-palette-swatch" data-v="/g) || []).length === PALETTES.length);
 check('скругление: 5 вариантов в разметке',
   /id="uiRadius"[\s\S]*?<\/div>/.test(optionsHtml) &&
   (optionsHtml.match(/id="uiRadius"[\s\S]*?data-v="/g) || ['']).length >= 1);

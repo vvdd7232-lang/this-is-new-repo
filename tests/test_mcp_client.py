@@ -27,10 +27,15 @@ class LoadConfigTests(unittest.TestCase):
         self.assertIn('blender', names)
         self.assertIn('godot', names)
 
-    def test_shipped_config_is_disabled_by_default(self):
-        """MCP — экспериментальная функция: из коробки всё выключено."""
+    def test_shipped_config_servers_are_enabled(self):
+        """В поставляемом конфиге базовые серверы предвключены (enabled: true).
+
+        Сам MCP-слой всё равно выключен по умолчанию (флаг --mcp на сервере и
+        галочка в настройках расширения). enabled здесь только помечает, какие
+        серверы поднимать, когда функция включена.
+        """
         for client in mcp.load_config(SHIPPED):
-            self.assertFalse(client.enabled, '%s должен быть выключен' % client.name)
+            self.assertTrue(client.enabled, '%s должен быть включён' % client.name)
 
     def test_skips_entries_without_name_or_command(self):
         path = os.path.join(HERE, '_tmp_cfg.json')

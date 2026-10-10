@@ -268,7 +268,7 @@
   padding: 10px 12px;
   border: 1px solid var(--ax-warn-soft);
   border-left: 3px solid var(--ax-warn);
-  border-radius: var(--ax-r-sm, 6px);
+  border-radius: var(--ax-r-sm, 9px);
   background: var(--ax-warn-soft);
   color: var(--ax-text);
   font-size: 12.5px;
@@ -478,8 +478,7 @@
 [data-ax-density="compact"] .ax-shadow-content {
   --ax-fs-md: 12px;
 }
-:host([data-ax-density="compact"]) .ax-btn,
-[data-ax-density="compact"] .ax-btn {
+:host([data-ax-density="compact"]) .ax-btn {
   padding: 5px 9px;
   font-size: var(--ax-fs-xs);
 }
@@ -487,8 +486,7 @@
 [data-ax-density="spacious"] .ax-shadow-content {
   --ax-fs-md: 14px;
 }
-:host([data-ax-density="spacious"]) .ax-btn,
-[data-ax-density="spacious"] .ax-btn {
+:host([data-ax-density="spacious"]) .ax-btn {
   padding: 9px 15px;
   font-size: var(--ax-fs-md);
 }
@@ -593,6 +591,27 @@ html[data-ax-theme="dark"][data-ax-palette="sunset"] .ax-ui-auto,
   --ax-accent-ring: rgba(251, 146, 60, 0.42);
 }
 
+/* Аметист — фиолетовый акцент. Мягче индиго, с лёгкой розовиной. */
+[data-ax-palette="amethyst"],
+:host([data-ax-palette="amethyst"]),
+html[data-ax-palette="amethyst"] .ax-ui-auto {
+  --ax-accent: #8b5cf6;
+  --ax-accent-strong: #7c3aed;
+  --ax-accent-soft: rgba(139, 92, 246, 0.12);
+  --ax-accent-ring: rgba(139, 92, 246, 0.35);
+  --ax-info: #8b5cf6;
+}
+[data-ax-theme="dark"] [data-ax-palette="amethyst"],
+[data-ax-theme="dark"][data-ax-palette="amethyst"],
+html[data-ax-theme="dark"][data-ax-palette="amethyst"] .ax-ui-auto,
+:host([data-ax-theme="dark"][data-ax-palette="amethyst"]) {
+  --ax-accent: #a78bfa;
+  --ax-accent-strong: #c4b5fd;
+  --ax-accent-soft: rgba(167, 139, 250, 0.16);
+  --ax-accent-ring: rgba(167, 139, 250, 0.42);
+  --ax-info: #a78bfa;
+}
+
 /* ---------- скругление ----------
  * Токены переопределяются целиком, иначе «плиточное» оставило бы
  * скруглёнными чипы, поля и тосты.
@@ -619,4 +638,211 @@ html[data-ax-theme="dark"][data-ax-palette="sunset"] .ax-ui-auto,
 :host([data-ax-radius="pill"]) {
   --ax-r-xs: 8px; --ax-r-sm: 999px; --ax-r-md: 20px;
   --ax-r-lg: 28px; --ax-r-pill: 999px;
+}
+
+/* ---------- фирменные улучшения дизайна ---------- */
+
+/* Пульсация статуса «выполняется» */
+@keyframes ax-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.ax-exec-status.ax-running {
+  animation: ax-pulse 1.6s ease-in-out infinite;
+}
+
+/* Микроанимация появления панелей и модалок */
+@keyframes ax-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ax-exec-panel,
+.ax-modal {
+  animation: ax-fade-up var(--ax-dur) var(--ax-ease);
+}
+
+/* Кастомный скроллбар */
+.ax-shadow-content ::-webkit-scrollbar,
+.ax-palette ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.ax-shadow-content ::-webkit-scrollbar-thumb,
+.ax-palette ::-webkit-scrollbar-thumb {
+  background: var(--ax-border-strong);
+  border-radius: var(--ax-r-pill);
+}
+.ax-shadow-content ::-webkit-scrollbar-thumb:hover,
+.ax-palette ::-webkit-scrollbar-thumb:hover {
+  background: var(--ax-text-faint);
+}
+.ax-shadow-content ::-webkit-scrollbar-track,
+.ax-palette ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Градиентная полоска слева у заголовка модалки */
+.ax-modal h3,
+.ax-modal .ax-modal-title {
+  position: relative;
+  padding-left: var(--ax-s-3);
+}
+.ax-modal h3::before,
+.ax-modal .ax-modal-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 14px;
+  border-radius: var(--ax-r-pill);
+  background: linear-gradient(180deg, var(--ax-accent), var(--ax-accent-strong));
+}
+
+/* Тосты: мягкое появление справа */
+@keyframes ax-toast-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.ax-toast {
+  animation: ax-toast-in 220ms var(--ax-ease);
+}
+
+/* Кнопка «Выполнить»: лёгкий градиент при наведении */
+.ax-btn-run:hover {
+  background: linear-gradient(180deg, var(--ax-accent-strong), var(--ax-accent));
+  filter: brightness(1.05);
+}
+
+/* Подсветка активного элемента палитры */
+.ax-palette-item.on {
+  border-color: var(--ax-accent-ring);
+  background: var(--ax-accent-soft);
+}
+
+/* Плавный переход для всех интерактивных элементов */
+.ax-btn,
+.ax-input,
+.ax-palette-item {
+  transition: all var(--ax-dur) var(--ax-ease);
+}
+
+/* ---------- КОТО-ТЕМА ----------
+ * Активируется атрибутом data-ax-cat="on" на хосте панели/модалки.
+ * Поверх любой палитры: ушки на кнопках, лапки на панели, хвостик у заголовка.
+ * Всё на чистом CSS — никаких картинок и JS. */
+
+/* Ушки на кнопках */
+[data-ax-cat="on"] .ax-btn {
+  position: relative;
+}
+[data-ax-cat="on"] .ax-btn::before,
+[data-ax-cat="on"] .ax-btn::after {
+  content: "";
+  position: absolute;
+  top: -7px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 8px solid var(--ax-accent);
+  opacity: 0;
+  transition: opacity var(--ax-dur) var(--ax-ease), transform var(--ax-dur) var(--ax-ease);
+  transform: scale(0.5);
+  pointer-events: none;
+  z-index: 1;
+}
+[data-ax-cat="on"] .ax-btn::before {
+  left: 6px;
+  transform: scale(0.5) rotate(-12deg);
+}
+[data-ax-cat="on"] .ax-btn::after {
+  right: 6px;
+  transform: scale(0.5) rotate(12deg);
+}
+[data-ax-cat="on"] .ax-btn:hover::before,
+[data-ax-cat="on"] .ax-btn:hover::after {
+  opacity: 1;
+  transform: scale(1) rotate(-12deg);
+}
+[data-ax-cat="on"] .ax-btn:hover::after {
+  transform: scale(1) rotate(12deg);
+}
+
+/* Ушки на кнопке "Выполнить" — всегда видны */
+[data-ax-cat="on"] .ax-btn-run::before,
+[data-ax-cat="on"] .ax-btn-run::after {
+  opacity: 1;
+  transform: scale(1) rotate(-12deg);
+  border-bottom-color: rgba(255, 255, 255, 0.85);
+}
+[data-ax-cat="on"] .ax-btn-run::after {
+  transform: scale(1) rotate(12deg);
+}
+
+/* Лапки на панели — декоративные уголки снизу */
+[data-ax-cat="on"] .ax-exec-panel {
+  position: relative;
+}
+[data-ax-cat="on"] .ax-exec-panel::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 8px;
+  background:
+    radial-gradient(circle at 8px 4px, var(--ax-accent) 3px, transparent 3px),
+    radial-gradient(circle at 20px 4px, var(--ax-accent) 3px, transparent 3px),
+    radial-gradient(circle at 32px 4px, var(--ax-accent) 3px, transparent 3px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Хвостик у заголовка модалки */
+[data-ax-cat="on"] .ax-modal h3::after,
+[data-ax-cat="on"] .ax-modal .ax-modal-title::after {
+  content: "";
+  position: absolute;
+  right: -18px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ax-accent);
+  border-left: none;
+  border-bottom: none;
+  border-radius: 0 8px 0 0;
+  transform: translateY(-50%) rotate(45deg);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Кошачий ус — декоративная линия под заголовком */
+[data-ax-cat="on"] .ax-modal-desc::before {
+  content: "";
+  display: block;
+  width: 30px;
+  height: 2px;
+  background: var(--ax-accent);
+  border-radius: var(--ax-r-pill);
+  margin-bottom: var(--ax-s-2);
+  opacity: 0.4;
+}
+
+/* Пульс ушек при выполнении команды */
+@keyframes ax-ear-twitch {
+  0%, 100% { transform: scale(1) rotate(-12deg); }
+  50% { transform: scale(1.15) rotate(-18deg); }
+}
+@keyframes ax-ear-twitch-r {
+  0%, 100% { transform: scale(1) rotate(12deg); }
+  50% { transform: scale(1.15) rotate(18deg); }
+}
+[data-ax-cat="on"] .ax-btn-run:hover::before {
+  animation: ax-ear-twitch 0.4s ease-in-out;
+}
+[data-ax-cat="on"] .ax-btn-run:hover::after {
+  animation: ax-ear-twitch-r 0.4s ease-in-out;
 }

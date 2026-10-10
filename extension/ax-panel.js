@@ -242,6 +242,7 @@
         // Журнал для палитры команд: текст, среда и код возврата (без вывода —
         // чтобы не раздувать storage и не тащить в историю секреты из вывода).
         try { AX.logCommand(command, r.runner || runRunner, r.exit_code, r.blocked ? 'blocked' : 'done'); } catch (e) { /* ignore */ }
+        try { AX.recordRun(r.runner || runRunner, r.exit_code === 0, r.blocked ? 'blocked' : 'done', { palette: opts && opts.palette }); } catch (e) { /* ignore */ }
         const formatted = AX.formatRunResult(command, runRunner, r, mySeq, 'full');
         AX.showResultModal(formatted, r.exit_code === 0);
     });
@@ -533,7 +534,8 @@
     }
     const runnerSelect = panel.$('.ax-runner-select');
     AX.fillRunnerSelect(runnerSelect, AX.memGet(command) || info.runner);
-    runnerSelect.onchange = () => AX.memSet(command, runnerSelect.value);
+    let currentCommand = command;
+    runnerSelect.onchange = () => AX.memSet(currentCommand, runnerSelect.value);
     function panelRunner() {
       try { return (runnerSelect && runnerSelect.value) || info.runner; }
       catch (e) { return info.runner; }
@@ -640,6 +642,8 @@
       if (!isAuto) { AX.loopBlocked = false; AX.lastAutoCommands = []; }
       const cmd = ((cmdOverride != null ? cmdOverride : D.getCodeText(pre)) || '').trim();
       if (!cmd) { AX.toast('Пустая команда'); fin(); return; }
+      lastChatFormatted = '';
+      lastFormatted = '';
       refreshPreview(cmd);
       let runRunner = maybeResniff(cmd);
       const mySeq = ++AX.axSeq;
@@ -675,7 +679,14 @@
         runStatusSent = true;
         AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=running runner=' + runRunner + '\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n');
       }, 800) : null;
-      sendRun(cmd, runRunner, (resp) => {
+      const staleGuard = () => {
+        if (!runFinished && !runStatusSent) {
+          runStatusSent = true;
+          AX.noteToChat('\n[LOCAL EXEC] seq=' + mySeq + ' status=stale-guard\n');
+        }
+      };
+      setTimeout(staleGuard, 30000);
+      sendRun(cmd, runRunner, async (resp) => {
           runFinished = true;
           if (runStatusTimer) clearTimeout(runStatusTimer);
           btnRun.disabled = false;
@@ -705,11 +716,17 @@
           }
           AX.markExecuted(cmd, r.runner || runRunner);
           try { AX.logCommand(cmd, r.runner || runRunner, r.exit_code, r.blocked ? 'blocked' : 'done'); } catch (e) { /* ignore */ }
+          try { AX.recordRun(r.runner || runRunner, r.view ? true : r.exit_code === 0, r.blocked ? 'blocked' : 'done', { auto: isAuto }); } catch (e) { /* ignore */ }
           lastFormatted = AX.formatRunResult(cmd, runRunner, r, mySeq, 'full');
           lastChatFormatted = AX.formatRunResult(cmd, runRunner, r, mySeq, AX.settings.echoMode);
           if (r.view) {
             try { AX.renderView(panel, r.view); } catch (e) { /* ignore */ }
-            try { Promise.resolve(AX.insertImageIntoChat(r.view)).catch((e) => console.warn('[AX] view insert:', e)); } catch (e) { /* ignore */ }
+            if (r.view.data_url) {
+              try {
+                const viewTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('view insert timeout')), 15000));
+                await Promise.race([AX.insertImageIntoChat(r.view), viewTimeout]);
+              } catch (e) { console.warn('[AX] view insert:', e); }
+            }
           }
           const okExit = r.view ? true : (r.exit_code === 0);
           status.className = 'ax-exec-status ' + (okExit ? 'ax-ok' : 'ax-err');
@@ -731,7 +748,8 @@
           if (AX.settings.autoInsert && lastChatFormatted) {
             try {
               const input = AX.insertIntoChat('\n```text\n' + lastChatFormatted + '\n```\n');
-              if (input && AX.settings.autoSend) { AX.autoSendToChat(input, fin); return; }
+              if (!input) { AX.toast('⚠️ Поле чата не найдено — результат в буфере обмена'); }
+              else if (AX.settings.autoSend) { AX.autoSendToChat(input, fin); return; }
             } catch (e) { console.warn('[AX] insert:', e); }
           }
           fin();
@@ -755,7 +773,9 @@
 
     panel.$('.ax-btn-run').onclick = (e) => {
       if (!trustedClick(e)) return;
-      stopAutoTimer(); dequeueAuto(autoHandle); doRun(null, false);
+      stopAutoTimer();
+      const handle = autoHandle;
+      doRun(null, false, () => { if (handle) dequeueAuto(handle); });
     };
 
     // ---------- автозапуск этой панели ----------

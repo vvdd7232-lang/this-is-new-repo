@@ -52,6 +52,14 @@
     return new File([blob], base + '.' + ext, { type: blob.type || mime });
   }
 
+  // Инпут «принадлежит чату», если лежит в форме или в области композера.
+  function chatBound(fi) {
+    try {
+      return !!(fi.closest('form') ||
+        fi.closest('[class*="chat" i], [class*="message" i], [class*="input" i], [class*="composer" i], [role="textbox"]'));
+    } catch (e) { return false; }
+  }
+
   function findUploadFileInputs(input) {
     const all = AX.deepQueryAll('input[type="file"]', AX.collectShadowRoots());
     const scored = [];
@@ -63,14 +71,25 @@
       if (fi.multiple) score += 2;
       try {
         if (input) {
-          const host = input.closest('form') || input.parentElement || input;
+          let host = null;
+          try { host = input.closest('form'); } catch (e) { /* ignore */ }
+          if (!host) {
+            try { host = input.closest('[class*="chat" i], [class*="message" i], [class*="input" i], [class*="composer" i], [role="textbox"]'); } catch (e) { /* ignore */ }
+          }
+          if (!host) host = input.parentElement || input;
           if (host && (host.contains(fi) || (host.parentElement && host.parentElement.contains(fi)))) score += 6;
         }
       } catch (e) { /* ignore */ }
       scored.push({ fi, score });
     }
     scored.sort((a, b) => b.score - a.score);
-    return scored.map((s) => s.fi);
+    const raw = scored.map((s) => s.fi);
+    // Предпочитаем инпуты, привязанные к форме/композеру: так мы не лезем в
+    // чужие виджеты страницы. Но если ни один кандидат не привязан (закрытый
+    // shadow-дом, инпут вне формы), не отбрасываем всё — иначе вставка
+    // никогда не сработает (регресс-тест [15]).
+    const bound = raw.filter(chatBound);
+    return bound.length ? bound : raw;
   }
 
   // Раньше возвращался только один «лучший» input[type=file]. Если он по
@@ -267,7 +286,7 @@
 
   AX.insertImageIntoChat = async function (view) {
     if (view && view.data_url) lastViewData = view;
-    if (!view || !view.data_url) { AX.toast('🖼 view: сервер не вернул data_url'); return false; }
+    if (!view || !view.data_url || typeof view.data_url !== 'string' || !view.data_url.startsWith('data:')) { AX.toast('🖼 view: сервер не вернул data_url'); return false; }
     const diag = { url: location.href, steps: [] };
     const say = (s) => { diag.steps.push(s); try { console.info('[AX][view]', s); } catch (e) { /* ignore */ } };
     const found = AX.findChatInputDetailed();
@@ -305,6 +324,8 @@
     const fi = findUploadFileInput(input);
     if (fi) {
       try {
+        // Список уже отфильтрован: привязанные к чату инпуты предпочтительны,
+        // а если их нет — взяты все кандидаты, поэтому здесь не отсекаем.
         const wait = waitForAttachment(scope, waitMs(2500));
         const dt = new DataTransfer();
         dt.items.add(file);
@@ -313,15 +334,16 @@
         fi.dispatchEvent(new Event('change', { bubbles: true }));
         const ok = await wait;
         diag.fileInput = { accept: fi.getAttribute('accept'), multiple: !!fi.multiple, verified: ok };
-        say('file-input: \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u0435\u043D, \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043D=' + ok);
-        if (ok) { AX.toast('view: \u043A\u0430\u0440\u0442\u0438\u043D\u043A\u0430 \u0432\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0430 \u0432 \u0447\u0430\u0442', 3500); return true; }
+        say('file-input: отправлен, подтверждён=' + ok);
+        if (ok) { AX.toast('view: картинка вставлена в чат', 3500); return true; }
         if (fi.files && fi.files.length) sentToFileInput = true;
       } catch (e) {
-        say('file-input \u043E\u0448\u0438\u0431\u043A\u0430: ' + e);
+        say('file-input ошибка: ' + e);
       }
     } else {
-      say('file-input \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D');
+      say('file-input не найден');
     }
+
 
 // Шаг 1б: перебор остальных input[type=file]. Шаг 1 пробует только один —
     // самый «похожий на композер». Если он не сработал (а рядом может лежать
@@ -382,6 +404,18 @@
     return false;
   };
 
+  // Обёртка для статистики: считаем только фактически успешную вставку. Кнопка
+  // «вставить ещё раз» (addViewRetryButton) зовёт AX.insertImageIntoChat, то есть
+  // уже обёрнутую версию, и повторный успех тоже засчитывается.
+  const _insertImageRaw = AX.insertImageIntoChat;
+  AX.insertImageIntoChat = async function (view) {
+    const ok = await _insertImageRaw(view);
+    if (ok && typeof AX.recordView === 'function') {
+      try { AX.recordView(); } catch (e) { /* ignore */ }
+    }
+    return ok;
+  };
+
   AX.renderView = function (panel, view) {
     if (!panel || !view || !view.data_url) return;
     // Панель живёт в закрытом shadow root — обращаемся через panel.$(...) и
@@ -404,8 +438,10 @@
       if (after && after.parentNode) after.parentNode.insertBefore(box, after.nextSibling);
       else scope.appendChild(box);
     }
-    box.querySelector('.ax-view-img').src = view.data_url;
-    box.querySelector('.ax-view-meta').textContent = view.path + ' (' + view.mime + ', ' + view.size + ' B)';
+    const imgEl = box.querySelector('.ax-view-img');
+    const metaEl = box.querySelector('.ax-view-meta');
+    if (imgEl) imgEl.src = view.data_url;
+    if (metaEl) metaEl.textContent = view.path + ' (' + view.mime + ', ' + view.size + ' B)';
     AX.addViewRetryButton(box, view);
   };
 

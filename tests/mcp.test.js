@@ -152,7 +152,10 @@ console.log('\n[1] background: MCP-маршруты ходят на сервер
   check('server.py: MCP_REGISTRY = None по умолчанию', /MCP_REGISTRY = None/.test(srvPy));
   check('server.py: флаг --mcp есть', /add_argument\('--mcp'/.test(srvPy));
   const cfg = JSON.parse(readRoot(path.join('server', 'mcp_servers.json')));
-  check('поставляемый конфиг: все серверы выключены', cfg.servers.every((s) => s.enabled === false), cfg.servers);
+  // v2.10.5: три базовых сервера включены намеренно (см. docs/releases/v2.10.5.md),
+  // защиту держит выключенное по умолчанию mcpEnabled в расширении.
+  check('поставляемый конфиг: известные серверы включены',
+    cfg.servers.length >= 3 && cfg.servers.every((s) => s.enabled === true), cfg.servers);
 
   // ---------- 6. Безопасность ----------
   console.log('\n[6] MCP-эндпоинты закрыты токеном, как /run');

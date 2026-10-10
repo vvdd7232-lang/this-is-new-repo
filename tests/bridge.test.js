@@ -154,7 +154,8 @@ async function runPopupChecks() {
   const g = (id) => env.w.document.getElementById(id);
   check('адрес сервера в поле', g('serverUrl').value === 'http://127.0.0.1:8765', g('serverUrl').value);
   check('таймаут в поле', String(g('timeout').value) === '45', g('timeout').value);
-  check('токен подставлен', g('authToken').value === 'POPUP-TOK', g('authToken').value);
+  check('поля токена в попапе больше нет', !g('authToken'));
+  check('токен остаётся в local (background его знает)', env.store.local.authToken === 'POPUP-TOK');
   check('«требовать подтверждение» снято', g('requireConfirm').checked === false);
   check('автовыполнение включено', g('autoExecute').checked === true);
   check('задержка автозапуска', String(g('autoDelay').value) === '5', g('autoDelay').value);

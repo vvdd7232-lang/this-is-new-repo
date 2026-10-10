@@ -159,7 +159,7 @@ async function run() {
   console.log('\n[3] Индикатор несохранённых изменений (dirty dot)');
   check('точка «есть несохранённые изменения» появилась', $('dirtyDot').classList.contains('on'));
 
-  console.log('\n[4] Сохранение пишет сегменты и токен в нужные области storage');
+  console.log('\n[4] Сохранение пишет сегменты в sync, токен не трогает');
   click($('save'));
   await waitFor(() => log.some((e) => e.op === 'set' && e.area === 'sync' && 'echoMode' in (e.items || {})), 3000);
   const syncSet = log.filter((e) => e.op === 'set' && e.area === 'sync').pop();
@@ -170,7 +170,10 @@ async function run() {
     syncSet && 'collapseAfterRun' in syncSet.items && 'soundOnComplete' in syncSet.items && 'browserNotify' in syncSet.items,
     syncSet && Object.keys(syncSet.items));
   check('токен НЕ пишется в sync', syncSet && !('authToken' in syncSet.items), syncSet && Object.keys(syncSet.items));
-  check('токен пишется в local', log.some((e) => e.op === 'set' && e.area === 'local' && 'authToken' in (e.items || {})));
+  // Поля токена в форме больше нет: он попадает в storage.local только из ссылки
+  // server.py (#ax-setup) или из импорта настроек — «Сохранить» его не пишет.
+  check('save() не пишет токен (его кладёт ссылка server.py)',
+    !log.some((e) => e.op === 'set' && e.area === 'local' && 'authToken' in (e.items || {})));
   check('точка несохранённых изменений очистилась', !$('dirtyDot').classList.contains('on'));
 
   console.log('\n[5] Кнопки Экспорт/Импорт подключены (раньше были мертвы)');
@@ -241,8 +244,10 @@ async function run() {
   check('пустой запрос возвращает все карточки',
     cards.every((c) => c.style.display !== 'none'));
 
-  console.log('\n[8] Токен: чтение из local, миграции из sync нет');
-  check('поле токена не пустое после импорта', $('authToken').value === 'secret-token', $('authToken').value);
+  console.log('\n[8] Токен: поля в форме нет, он приходит из ссылки/импорта');
+  check('поля токена в форме нет', !$('authToken'));
+  check('токен из импорта лежит в local',
+    log.some((e) => e.op === 'set' && e.area === 'local' && (e.items || {}).authToken === 'secret-token'));
 
   console.log('\n[9] Онбординг: ссылка от сервера (#ax-setup=…) настраивает всё сама');
   const payload = Buffer.from(JSON.stringify({ url: 'http://127.0.0.1:9999', token: 'TOKEN-FROM-LINK' }), 'utf8')
@@ -251,7 +256,7 @@ async function run() {
   const l$ = (id) => linkEnv.w.document.getElementById(id);
   await waitFor(() => l$('serverUrl').value === 'http://127.0.0.1:9999', 4000).catch(() => {});
   check('адрес сервера подставлен из ссылки', l$('serverUrl').value === 'http://127.0.0.1:9999', l$('serverUrl').value);
-  check('токен подставлен из ссылки', l$('authToken').value === 'TOKEN-FROM-LINK', l$('authToken').value);
+  check('токен из ссылки не показывается в форме (поля нет)', !l$('authToken'));
   check('адрес сохранён в sync',
     linkEnv.log.some((e) => e.op === 'set' && e.area === 'sync' && (e.items || {}).serverUrl === 'http://127.0.0.1:9999'));
   check('токен сохранён в local (не в sync)',
@@ -277,6 +282,37 @@ async function run() {
   await waitFor(() => alienEnv.log.some((e) => e.op === 'sendMessage'), 3000).catch(() => {});
   check('пустая полезная нагрузка: поля остались прежними',
     alienEnv.w.document.getElementById('serverUrl').value === 'http://127.0.0.1:8765');
+
+  console.log('\n[11] Профили настроек: сохранение, применение, удаление');
+  check('карточка профилей есть в разметке',
+    !!$('sec-profiles') && !!$('saveProfile') && !!$('profilesList'));
+  $('profileName').value = 'Работа';
+  $('serverUrl').value = 'http://127.0.0.1:8765';
+  click($('saveProfile'));
+  await waitFor(() => store.sync.axProfiles && store.sync.axProfiles['Работа'], 2000).catch(() => {});
+  check('профиль сохранён в storage.sync под именем',
+    !!(store.sync.axProfiles && store.sync.axProfiles['Работа']));
+  check('снимок содержит адрес сервера',
+    store.sync.axProfiles['Работа'].serverUrl === 'http://127.0.0.1:8765',
+    store.sync.axProfiles['Работа'] && store.sync.axProfiles['Работа'].serverUrl);
+  check('токен в профиль не попал', !('authToken' in store.sync.axProfiles['Работа']));
+  await waitFor(() => $('profilesList').querySelector('.ax-prof-item') !== null, 2000).catch(() => {});
+  check('профиль показан в списке', /Работа/.test($('profilesList').textContent));
+  check('поле имени очищено после сохранения', $('profileName').value === '');
+
+  // Меняем адрес и сохраняем — «Применить» должен вернуть прежний из профиля.
+  $('serverUrl').value = 'http://127.0.0.1:9999';
+  click($('save'));
+  await waitFor(() => store.sync.serverUrl === 'http://127.0.0.1:9999', 2000).catch(() => {});
+  click($('profilesList').querySelector('.ax-prof-item button'));
+  await waitFor(() => $('serverUrl').value === 'http://127.0.0.1:8765', 3000).catch(() => {});
+  check('«Применить» вернул адрес из профиля',
+    $('serverUrl').value === 'http://127.0.0.1:8765', $('serverUrl').value);
+
+  click($('profilesList').querySelectorAll('.ax-prof-item button')[1]);
+  await waitFor(() => !store.sync.axProfiles || !store.sync.axProfiles['Работа'], 2000).catch(() => {});
+  check('«Удалить» убрал профиль из storage',
+    !(store.sync.axProfiles && store.sync.axProfiles['Работа']));
 
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');

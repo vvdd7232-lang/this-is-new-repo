@@ -209,19 +209,66 @@
 }
 
 .ax-exec-status.ax-running { color: var(--ax-warn); }
-.ax-exec-status.ax-running::before { background: var(--ax-warn); animation: ax-pulse 1.2s ease-in-out infinite; }
+
+/* Бегущий кот вместо обычной точки-спиннера. Силуэт (спина, уши, хвост,
+   лапы) вырезан clip-path по прямоугольнику 16x12: два кадра меняют фазу
+   лап, отдельная анимация подбрасывает тело вверх-вниз, как при беге. */
+.ax-exec-status.ax-running::before {
+  content: "";
+  width: 16px;
+  height: 12px;
+  flex: 0 0 auto;
+  background: currentColor;
+  clip-path: polygon(
+    1px 0px, 4px 4px, 5px 3px, 9px 3px, 10px 0px, 11.5px 3px,
+    12.5px 0.5px, 15px 3.5px, 15px 6px, 13px 7px, 13.5px 7px,
+    15.5px 9.5px, 15.5px 12px, 14px 12px, 13px 9px, 12px 7px,
+    8px 7px, 7px 7px, 6px 9.5px, 5px 12px, 3.5px 12px, 4px 9px,
+    3px 7px, 2px 5px
+  );
+  animation: ax-cat-run 0.3s steps(1, end) infinite, ax-cat-bob 0.3s ease-in-out infinite alternate;
+}
+
 .ax-exec-status.ax-ok { color: var(--ax-success); }
-.ax-exec-status.ax-ok::before { background: var(--ax-success); }
+.ax-exec-status.ax-ok::before { background: var(--ax-success); animation: none; clip-path: none; border-radius: 50%; width: 6px; height: 6px; }
 .ax-exec-status.ax-err { color: var(--ax-danger); }
-.ax-exec-status.ax-err::before { background: var(--ax-danger); }
+.ax-exec-status.ax-err::before { background: var(--ax-danger); animation: none; clip-path: none; border-radius: 50%; width: 6px; height: 6px; }
 
 @keyframes ax-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.45; transform: scale(0.85); }
 }
 
+/* Кадр бега: лапы в другом положении (передние точки 11-15, задние 19-22). */
+@keyframes ax-cat-run {
+  0% {
+    clip-path: polygon(
+      1px 0px, 4px 4px, 5px 3px, 9px 3px, 10px 0px, 11.5px 3px,
+      12.5px 0.5px, 15px 3.5px, 15px 6px, 13px 7px, 13.5px 7px,
+      15.5px 9.5px, 15.5px 12px, 14px 12px, 13px 9px, 12px 7px,
+      8px 7px, 7px 7px, 6px 9.5px, 5px 12px, 3.5px 12px, 4px 9px,
+      3px 7px, 2px 5px
+    );
+  }
+  50% {
+    clip-path: polygon(
+      1px 0px, 4px 4px, 5px 3px, 9px 3px, 10px 0px, 11.5px 3px,
+      12.5px 0.5px, 15px 3.5px, 15px 6px, 13px 7px, 13.2px 7px,
+      13.8px 9.5px, 13.4px 12px, 12px 12px, 12.3px 9px, 12px 7px,
+      8px 7px, 7px 7px, 8px 9.5px, 8.5px 12px, 7px 12px, 6.4px 9px,
+      3px 7px, 2px 5px
+    );
+  }
+}
+
+@keyframes ax-cat-bob {
+  from { transform: translateY(1px); }
+  to { transform: translateY(-1px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ax-exec-status.ax-running::before { animation: none; }
+  .ax-exec-status.ax-running { animation: none; }
 }
 
 /* ---------- объяснение ошибки ---------- */
@@ -242,7 +289,7 @@
 
 .ax-exec-explain.on { display: flex; }
 .ax-exec-explain .ax-ico { width: 14px; height: 14px; flex: 0 0 auto; margin-top: 2px; }
-.ax-exec-explain b { font-weight: 650; }
+.ax-exec-explain b { font-weight: 600; }
 
 /* ---------- вывод ---------- */
 
@@ -603,7 +650,7 @@
 }
 
 .ax-noisy-hint.on { display: flex; }
-.ax-noisy-hint b { color: var(--ax-text); font-weight: 650; }
+.ax-noisy-hint b { color: var(--ax-text); font-weight: 600; }
 .ax-noisy-hint .ax-ico { width: 13px; height: 13px; }
 
 /* ---------- тосты (живут в DOM страницы) ---------- */
