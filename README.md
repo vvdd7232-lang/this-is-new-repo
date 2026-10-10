@@ -542,7 +542,7 @@ powershell -ExecutionPolicy Bypass -File tools/shot.ps1   # → tools/shots/*.pn
 ```bash
 cd tests
 npm install          # один раз (jsdom)
-npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (703 проверки)
+npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (713 проверки)
 npm run test:server  # Python: сервер (102 проверки)
 npm run test:all     # всё вместе
 ```
@@ -565,7 +565,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.0
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.1
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

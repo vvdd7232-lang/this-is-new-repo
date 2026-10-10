@@ -688,6 +688,12 @@
       setTimeout(staleGuard, 30000);
       sendRun(cmd, runRunner, async (resp) => {
           runFinished = true;
+          // Панель считается завершённой при ЛЮБОМ исходе (успех, ошибка,
+          // блокировка whitelist). Раньше finish() вызывался только в ветке
+          // успеха, поэтому после ошибки флаг done оставался false и панель
+          // снова попадала под applyPendingAuto()/retry() — уже упавшая
+          // команда запускалась повторно.
+          autoHandle.finish();
           if (runStatusTimer) clearTimeout(runStatusTimer);
           btnRun.disabled = false;
           AX.setBtnLabel(btnRun, 'play', 'Выполнить');
@@ -704,7 +710,6 @@
             fin();
             return;
           }
-          autoHandle.finish();
           const r = resp.result || {};
           if (r.blocked) {
             AX.noteToChat('\n[LOCAL EXEC RESULT] seq=' + mySeq + ' status=blocked reason=whitelist\n$ ' + AX.echoCommand(cmd, AX.settings.echoMode) + '\n' + (r.error || '') + '\n');
@@ -797,7 +802,6 @@
 
     function startAuto() {
       if (autoHandle.started || autoHandle.done || autoCancelled) return;
-      autoHandle.started = true;
       if (flags.weak && !AX.settings.autoWeak) {
         status.className = 'ax-exec-status';
         status.textContent = MSG_WEAK_AUTO_OFF;
@@ -809,6 +813,12 @@
         status.textContent = MSG_LOOP_OFF;
         return;
       }
+      // started выставляем ТОЛЬКО после успешной проверки всех условий.
+      // Раньше флаг ставился до проверок, и панель, заблокированная на момент
+      // скана (loop-guard или выключенный автозапуск), навсегда теряла
+      // возможность стартовать позже — applyPendingAuto() видел started=true
+      // и пропускал её.
+      autoHandle.started = true;
       ensureCancelBtn();
       enqueueAuto(autoHandle);
     }
@@ -957,6 +967,11 @@
         this.claimed = false;
         this.started = false;
         autoCancelled = false;
+        // Фазовая защёлка runAutoNow() гасит показ статуса «в очереди»
+        // (showQueued выходит, если phase2=true). Без сброса панель, однажды
+        // дошедшая до фазы выполнения, больше не показывала, что стоит в
+        // очереди за другой активной панелью.
+        phase2 = false;
         this.start();
       },
     };

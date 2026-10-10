@@ -179,9 +179,15 @@
     for (let i = AX.livePanels.length - 1; i >= 0; i--) {
       const h = AX.livePanels[i];
       if (h.el && !h.el.isConnected) { AX.livePanels.splice(i, 1); continue; }
+      // Трогаем только «свежие» панели, которые ещё ни разу не стартовали.
+      // Раньше retry() вызывался для ВСЕХ живых панелей, включая уже
+      // выполненные: смена настройки могла перезапустить давно отработавшую
+      // команду (дедуп по сессии historyAge возвращает 0, а окно dupAge — 60с).
+      if (h.done || h.started || h.claimed) continue;
       try { h.retry(); } catch (e) { /* ignore */ }
     }
   }
+  AX.applyPendingAuto = applyPendingAuto;
 
   function init() {
     console.log('[AX] AI Execute Runner загружен на ' + location.hostname);

@@ -33,7 +33,7 @@ function check(name, cond, extra) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-function makeEnv({ autoExecute = false, requireConfirm = true } = {}) {
+function makeEnv({ autoExecute = false, requireConfirm = true, runError = false } = {}) {
   const html = '<!doctype html><html><body><div id="chat">' +
     '<pre data-language="execute"><code>echo hello</code></pre>' +
     '</div></body></html>';
@@ -76,7 +76,9 @@ function makeEnv({ autoExecute = false, requireConfirm = true } = {}) {
         else if (msg && msg.type === 'AX_PING') resp = { ok: true, info: { status: 'ok' } };
         else if (msg && msg.type === 'AX_RUN') {
           runs.push(msg.payload);
-          resp = { ok: true, result: { ok: true, executed: true, runner: msg.payload.runner, exit_code: 0, stdout: 'ok\n', stderr: '', duration_ms: 5 } };
+          resp = runError
+            ? { ok: false, error: 'boom' }
+            : { ok: true, result: { ok: true, executed: true, runner: msg.payload.runner, exit_code: 0, stdout: 'ok\n', stderr: '', duration_ms: 5 } };
         }
         if (cb) { setTimeout(() => cb(resp), 0); return undefined; }
         return Promise.resolve(resp);
@@ -204,6 +206,66 @@ async function run() {
     panelsForNew && panelsForNew.className);
   check('панель-дубликат рядом не размножается',
     !(panelsForNew.nextElementSibling && panelsForNew.nextElementSibling.classList.contains('ax-exec-panel')));
+
+  console.log('\n[6] applyPendingAuto() НЕ перезапускает завершённые панели (дефект A)');
+  const envA = makeEnv({ autoExecute: true });
+  await sleep(60);
+  const hA = envA.w.AX.livePanels[0];
+  // Имитируем полностью завершённую панель: очередь свободна, флаги сброшены.
+  envA.w.AX.autoQueue.length = 0;
+  envA.w.AX.currentAuto = null;
+  envA.w.AX.autoActive = false;
+  hA.started = false;
+  hA.claimed = false;
+  hA.finish();
+  check('панель помечена как выполненная', hA.done === true);
+  envA.w.AX.applyPendingAuto();
+  check('applyPendingAuto() не сбросил done', hA.done === true, hA.done);
+  check('applyPendingAuto() не вернул панель в очередь',
+    envA.w.AX.autoQueue.indexOf(hA) === -1 && envA.w.AX.currentAuto !== hA,
+    { queue: envA.w.AX.autoQueue.length, current: envA.w.AX.currentAuto === hA });
+  check('выполненная команда не ушла на сервер повторно', envA.runs.length === 0, envA.runs);
+
+  console.log('\n[7] Ошибка выполнения тоже выставляет done (дефект C)');
+  const envC = makeEnv({ requireConfirm: false, runError: true });
+  await sleep(60);
+  const hC = envC.w.AX.livePanels[0];
+  envC.w.__realClick(envC.w.document.querySelector('.ax-exec-panel').$('.ax-btn-run'));
+  await sleep(80);
+  check('команда ушла и вернулась ошибкой', envC.runs.length === 1);
+  check('после ошибки done выставлен (нет повторного автозапуска)', hC.done === true, hC.done);
+
+  console.log('\n[8] Панель, заблокированная loop-guard, стартует после снятия блокировки (дефект D)');
+  const envD = makeEnv({ autoExecute: true });
+  await sleep(60);
+  envD.w.AX.loopBlocked = true;
+  const chatD = envD.w.document.getElementById('chat');
+  const preD = envD.w.document.createElement('pre');
+  preD.setAttribute('data-language', 'execute');
+  const codeD = envD.w.document.createElement('code');
+  codeD.textContent = 'echo d';
+  preD.appendChild(codeD);
+  chatD.appendChild(preD);
+  envD.w.AX.scan(chatD, true);
+  await sleep(20);
+  const hD = envD.w.AX.livePanels[envD.w.AX.livePanels.length - 1];
+  check('панель построена', !!hD && hD.done === false);
+  check('started НЕ выставлен, пока блокировка loop-guard активна', hD.started === false, hD.started);
+  envD.w.AX.loopBlocked = false;
+  envD.w.AX.applyPendingAuto();
+  check('после снятия loop-guard панель запустилась', hD.started === true, hD.started);
+
+  console.log('\n[9] retry() снова показывает очередь (дефект B: фазовая защёлка phase2)');
+  const envB = makeEnv({ autoExecute: true });
+  await sleep(60);
+  const hB = envB.w.AX.livePanels[0];
+  hB.runNow(() => {});                 // выставляет phase2 = true
+  envB.w.AX.autoActive = true;          // имитируем занятую очередь (другая панель)
+  hB.retry();                           // должен сбросить phase2
+  hB.showQueued(1);
+  const statusB = envB.w.document.querySelector('.ax-exec-panel').$('.ax-exec-status');
+  check('после retry очередь снова отображается',
+    /в очереди|подготовка/.test(statusB.textContent), statusB.textContent);
 
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');

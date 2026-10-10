@@ -243,6 +243,12 @@ function applyUiTuningToHtml(values) {
     if (val && val !== t.def) html.setAttribute(t.attr, val);
     else html.removeAttribute(t.attr);
   });
+  // Кото-тема — не выбор из списка, поэтому отдельно: атрибут на <html>
+  // даёт живое превью ушек/лапок прямо на странице настроек.
+  const cat = ('catMode' in v) ? v.catMode === true
+    : ($('catMode') ? $('catMode').checked : false);
+  if (cat) html.setAttribute('data-ax-cat', 'on');
+  else html.removeAttribute('data-ax-cat');
 }
 
 function initUiTuning() {
@@ -251,6 +257,9 @@ function initUiTuning() {
   });
   // Палитра — такие же кнопки с data-v, но подсветка своя.
   bindSeg('uiPalette', () => applyUiTuningToHtml(readUiTuning()));
+  // Кото-тема — это чекбокс, а не сегмент: обновляем превью сразу.
+  const catToggle = $('catMode');
+  if (catToggle) catToggle.addEventListener('change', () => applyUiTuningToHtml(readUiTuning()));
   const moreBtn = $('uiMoreBtn');
   const more = $('uiMore');
   if (moreBtn && more) {
@@ -280,6 +289,7 @@ function readUiTuning() {
     uiRadius: getSeg('uiRadius') || 'soft',
     uiBtnStyle: getSeg('uiBtnStyle') || 'soft',
     uiDensity: getSeg('uiDensity') || 'normal',
+    catMode: $('catMode') ? $('catMode').checked : false,
   };
 }
 

@@ -729,98 +729,117 @@ html[data-ax-theme="dark"][data-ax-palette="amethyst"] .ax-ui-auto,
 }
 
 /* ---------- КОТО-ТЕМА ----------
- * Активируется атрибутом data-ax-cat="on" на хосте панели/модалки.
+ * Включается атрибутом data-ax-cat="on": на <html> для страницы настроек и
+ * на хосте панели/модалки (shadow root) для контента. Поэтому селекторы идут
+ * парами:
+ *   [data-ax-cat="on"] ...         — светлый DOM (страница настроек);
+ *   :host([data-ax-cat="on"]) ...  — внутри shadow root (панель, модалка).
+ * Раньше был только светлый вариант, из-за чего в панели тема не работала.
  * Поверх любой палитры: ушки на кнопках, лапки на панели, хвостик у заголовка.
  * Всё на чистом CSS — никаких картинок и JS. */
 
-/* Ушки на кнопках */
-[data-ax-cat="on"] .ax-btn {
+/* Ушки на кнопках (кроме иконочных — на них они мешают) */
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon),
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon) {
   position: relative;
 }
-[data-ax-cat="on"] .ax-btn::before,
-[data-ax-cat="on"] .ax-btn::after {
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon)::before,
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon)::after,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon)::before,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon)::after {
   content: "";
   position: absolute;
-  top: -7px;
+  top: -6px;
   width: 0;
   height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-bottom: 8px solid var(--ax-accent);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid var(--ax-accent);
   opacity: 0;
   transition: opacity var(--ax-dur) var(--ax-ease), transform var(--ax-dur) var(--ax-ease);
   transform: scale(0.5);
   pointer-events: none;
   z-index: 1;
 }
-[data-ax-cat="on"] .ax-btn::before {
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon)::before,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon)::before {
   left: 6px;
   transform: scale(0.5) rotate(-12deg);
 }
-[data-ax-cat="on"] .ax-btn::after {
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon)::after,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon)::after {
   right: 6px;
   transform: scale(0.5) rotate(12deg);
 }
-[data-ax-cat="on"] .ax-btn:hover::before,
-[data-ax-cat="on"] .ax-btn:hover::after {
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon):hover::before,
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon):hover::after,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon):hover::before,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon):hover::after {
   opacity: 1;
   transform: scale(1) rotate(-12deg);
 }
-[data-ax-cat="on"] .ax-btn:hover::after {
+[data-ax-cat="on"] .ax-btn:not(.ax-btn-icon):hover::after,
+:host([data-ax-cat="on"]) .ax-btn:not(.ax-btn-icon):hover::after {
   transform: scale(1) rotate(12deg);
 }
 
-/* Ушки на кнопке "Выполнить" — всегда видны */
-[data-ax-cat="on"] .ax-btn-run::before,
-[data-ax-cat="on"] .ax-btn-run::after {
+/* Ушки на кнопке «Выполнить» — всегда видны. :not() держим для той же
+   специфичности, что у базового правила выше, иначе opacity: 0 побеждает. */
+[data-ax-cat="on"] .ax-btn-run:not(.ax-btn-icon)::before,
+[data-ax-cat="on"] .ax-btn-run:not(.ax-btn-icon)::after,
+:host([data-ax-cat="on"]) .ax-btn-run:not(.ax-btn-icon)::before,
+:host([data-ax-cat="on"]) .ax-btn-run:not(.ax-btn-icon)::after {
   opacity: 1;
   transform: scale(1) rotate(-12deg);
   border-bottom-color: rgba(255, 255, 255, 0.85);
 }
-[data-ax-cat="on"] .ax-btn-run::after {
+[data-ax-cat="on"] .ax-btn-run:not(.ax-btn-icon)::after,
+:host([data-ax-cat="on"]) .ax-btn-run:not(.ax-btn-icon)::after {
   transform: scale(1) rotate(12deg);
 }
 
-/* Лапки на панели — декоративные уголки снизу */
-[data-ax-cat="on"] .ax-exec-panel {
-  position: relative;
-}
-[data-ax-cat="on"] .ax-exec-panel::after {
+/* Лапки на панели — три точки по низу. Панель сама хост и у неё
+   overflow: hidden, поэтому держим метки внутри нижнего отступа. */
+[data-ax-cat="on"].ax-exec-panel::after,
+:host([data-ax-cat="on"].ax-exec-panel)::after {
   content: "";
   position: absolute;
-  bottom: -4px;
+  bottom: 3px;
   left: 50%;
   transform: translateX(-50%);
   width: 40px;
-  height: 8px;
+  height: 6px;
   background:
-    radial-gradient(circle at 8px 4px, var(--ax-accent) 3px, transparent 3px),
-    radial-gradient(circle at 20px 4px, var(--ax-accent) 3px, transparent 3px),
-    radial-gradient(circle at 32px 4px, var(--ax-accent) 3px, transparent 3px);
-  opacity: 0.5;
+    radial-gradient(circle at 8px 3px, var(--ax-accent) 2.5px, transparent 2.5px),
+    radial-gradient(circle at 20px 3px, var(--ax-accent) 2.5px, transparent 2.5px),
+    radial-gradient(circle at 32px 3px, var(--ax-accent) 2.5px, transparent 2.5px);
+  opacity: 0.45;
   pointer-events: none;
 }
 
 /* Хвостик у заголовка модалки */
 [data-ax-cat="on"] .ax-modal h3::after,
-[data-ax-cat="on"] .ax-modal .ax-modal-title::after {
+[data-ax-cat="on"] .ax-modal .ax-modal-title::after,
+:host([data-ax-cat="on"]) .ax-modal h3::after,
+:host([data-ax-cat="on"]) .ax-modal .ax-modal-title::after {
   content: "";
   position: absolute;
-  right: -18px;
+  right: -14px;
   top: 50%;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border: 2px solid var(--ax-accent);
   border-left: none;
   border-bottom: none;
   border-radius: 0 8px 0 0;
   transform: translateY(-50%) rotate(45deg);
-  opacity: 0.6;
+  opacity: 0.55;
   pointer-events: none;
 }
 
 /* Кошачий ус — декоративная линия под заголовком */
-[data-ax-cat="on"] .ax-modal-desc::before {
+[data-ax-cat="on"] .ax-modal-desc::before,
+:host([data-ax-cat="on"]) .ax-modal-desc::before {
   content: "";
   display: block;
   width: 30px;
@@ -840,9 +859,20 @@ html[data-ax-theme="dark"][data-ax-palette="amethyst"] .ax-ui-auto,
   0%, 100% { transform: scale(1) rotate(12deg); }
   50% { transform: scale(1.15) rotate(18deg); }
 }
-[data-ax-cat="on"] .ax-btn-run:hover::before {
+[data-ax-cat="on"] .ax-btn-run:hover::before,
+:host([data-ax-cat="on"]) .ax-btn-run:hover::before {
   animation: ax-ear-twitch 0.4s ease-in-out;
 }
-[data-ax-cat="on"] .ax-btn-run:hover::after {
+[data-ax-cat="on"] .ax-btn-run:hover::after,
+:host([data-ax-cat="on"]) .ax-btn-run:hover::after {
   animation: ax-ear-twitch-r 0.4s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-ax-cat="on"] .ax-btn-run:hover::before,
+  [data-ax-cat="on"] .ax-btn-run:hover::after,
+  :host([data-ax-cat="on"]) .ax-btn-run:hover::before,
+  :host([data-ax-cat="on"]) .ax-btn-run:hover::after {
+    animation: none;
+  }
 }
