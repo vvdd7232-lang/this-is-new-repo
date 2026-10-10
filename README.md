@@ -48,15 +48,16 @@ ai-execute-extension/
 │   ├── detect-runner.test.js  ← распознавание execute-блоков (22)
 │   ├── view-insert.test.js    ← вставка картинок в чат (62)
 │   ├── options-bindings.test.js ← страница настроек: биндинги UI, импорт/экспорт, профили (48)
-│   ├── panel-autopilot.test.js ← панель: shadow DOM, isTrusted, retry автопилота (25)
+│   ├── panel-autopilot.test.js ← панель: shadow DOM, isTrusted, retry автопилота (38)
 │   ├── failure-explain.test.js ← перевод ошибок в понятный текст (31)
-│   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов (119)
+│   ├── ui-system.test.js      ← дизайн-система: токены, темы, контракт классов (122)
 │   ├── features.test.js       ← палитра, свёрнутый вывод, журнал, секреты, статистика, XP (123)
-│   ├── bridge.test.js         ← background.js и popup.js: сервер, токен, маршрутизация (42)
+│   ├── bridge.test.js         ← background.js и popup.js: сервер, токен, авто-синхронизация (48)
 │   ├── mcp.test.js            ← MCP: маршруты, токен, opt-in, безопасность, UI, execute-mcp, отчёт (117)
 │   ├── fake_mcp_server.py     ← тестовый MCP-сервер на stdio
 │   ├── test_mcp_client.py     ← MCP-клиент: протокол, таймауты, конфиг, PATH (26)
-│   └── test_server.py         ← сервер: whitelist, decoding, view, CORS, /mcp/*, безопасность MCP, отчёт (68)
+│   ├── test_mcp_http.py       ← MCP Streamable HTTP: транспорт, ошибки (18)
+│   └── test_server.py         ← сервер: whitelist, decoding, view, CORS, /mcp/*, токен-автосинк, отчёт (82)
 ├── tools/
 │   ├── build-release.ps1 ← сборка dist/ (chrome.zip, firefox.xpi, server.zip)
 │   ├── verify-artifacts.ps1 ← проверка, что в архивы попали нужные файлы
@@ -99,14 +100,18 @@ http://127.0.0.1:8765
 
 Флаги сервера: `python server.py --port 9999 --cwd D:\projects --max-output 0` — свой порт, рабочая папка для команд, лимит вывода (0 = без лимита). Если запустить из системной папки (System32) — сервер сам перейдёт в домашнюю. Рабочую папку можно задать и в расширении: ⚙️ → «Рабочая папка».
 
-### ⚡ Настройка в один клик
+### ⚡ Настройка токена (zero-touch)
 
-Сервер при старте печатает готовую ссылку вида
-`chrome-extension://<ID расширения>/options.html#ax-setup=…`, внутри которой адрес сервера и токен.
-Скопируй её в адресную строку браузера — расширение само подставит адрес и токен и сразу проверит связь.
-Токен при этом вычищается из адресной строки и хранится только локально. Отдельного поля для ручного ввода токена больше нет — расширение получает и хранит его само, поэтому «401 invalid token» из-за незаполненного поля больше не встречается.
+Токен нужен, чтобы команды к локальному серверу не мог слать чужой сайт. **Раньше** его приходилось переносить вручную, и после перезапуска сервера он менялся — отсюда частая ошибка `401 invalid or missing token`.
 
-> Это убирает самую частую проблему первого запуска: «бейдж offline» и `401 invalid token` из-за незаполненного токена.
+Теперь это не нужно:
+
+- Сервер хранит токен в файле `~/.ai-execute-runner.token` (домашняя папка, не в репозитории) — токен **не меняется** между запусками.
+- Расширение само забирает актуальный токен у сервера (`GET /ax-token`) и повторяет запрос, если получило `401`. Эндпоинт отдаёт токен только запросам, прошедшим проверку Origin/Host (DNS-rebinding и чужие сайты отсекаются).
+- Достаточно запустить `python server.py` и работать. Перезапуск сервера больше не требует перенастройки.
+
+Запасной путь (если что-то пошло не так): сервер при старте печатает готовую ссылку вида `chrome-extension://<ID расширения>/options.html#ax-setup=…`, внутри которой адрес сервера и токен. Вставь её в адресную строку — расширение подставит адрес и токен и сразу проверит связь. Токен при этом вычищается из адресной строки и хранится только локально.
+
 > ID расширения виден в `chrome://extensions` (Chrome) или `about:debugging` (Firefox).
 
 ### Whitelist (защита от неразрешённых команд)
@@ -542,8 +547,8 @@ powershell -ExecutionPolicy Bypass -File tools/shot.ps1   # → tools/shots/*.pn
 ```bash
 cd tests
 npm install          # один раз (jsdom)
-npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (713 проверки)
-npm run test:server  # Python: сервер (102 проверки)
+npm test             # JS: sniff + detect + view + options + panel + errors + ui + features + bridge + mcp (725 проверок)
+npm run test:server  # Python: сервер (82 проверки)
 npm run test:all     # всё вместе
 ```
 
@@ -565,7 +570,7 @@ powershell -ExecutionPolicy Bypass -File tools/smoke.ps1   # → отчёт ok/F
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/build-release.ps1
 # или с явной версией:
-powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.1
+powershell -ExecutionPolicy Bypass -File tools/build-release.ps1 -Version 2.11.2
 ```
 
 Скрипт сверяет версию в `server.py`, `extension/manifest.json` и

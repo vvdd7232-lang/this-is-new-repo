@@ -189,6 +189,18 @@
   }
   AX.applyPendingAuto = applyPendingAuto;
 
+  // Настройки внешнего вида (палитра, кото-тема и т.п.) приходят из storage
+  // асинхронно — панель могла построиться раньше. Перекрашиваем уже созданные
+  // панели, когда настройки доехали или изменились на лету.
+  const APPEARANCE_KEYS = ['uiTheme', 'uiPalette', 'uiRadius', 'uiBtnStyle', 'uiDensity', 'catMode', 'panelSize'];
+  function applyAppearanceToPanels() {
+    for (let i = AX.livePanels.length - 1; i >= 0; i--) {
+      const h = AX.livePanels[i];
+      if (h.el && !h.el.isConnected) { AX.livePanels.splice(i, 1); continue; }
+      try { if (h.el) AX.applyPanelAppearance(h.el); } catch (e) { /* ignore */ }
+    }
+  }
+
   function init() {
     console.log('[AX] AI Execute Runner загружен на ' + location.hostname);
     window.__axDiag = function () {
@@ -211,7 +223,8 @@
     AX.loadStorageState();
     AX.initSettings((changes) => {
       // изменения настроек — обновляем панели
-      if (!changes) { applyPendingAuto(); return; }
+      if (!changes) { applyAppearanceToPanels(); applyPendingAuto(); return; }
+      if (APPEARANCE_KEYS.some((k) => k in changes)) applyAppearanceToPanels();
       if ((changes.autoExecute && changes.autoExecute.newValue === true) ||
           (changes.autoWeak && changes.autoWeak.newValue === true) ||
           (changes.maxAutoRuns && (changes.maxAutoRuns.newValue || 0) !== (changes.maxAutoRuns.oldValue || 0))) applyPendingAuto();

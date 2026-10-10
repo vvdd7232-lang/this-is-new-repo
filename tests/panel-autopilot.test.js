@@ -267,6 +267,19 @@ async function run() {
   check('после retry очередь снова отображается',
     /в очереди|подготовка/.test(statusB.textContent), statusB.textContent);
 
+  console.log('\n[10] Кото-тема доезжает до панели через AX.applyPanelAppearance (дефект v2.11.2)');
+  const envK = makeEnv({ autoExecute: false });
+  await sleep(50);
+  const panelK = envK.w.document.querySelector('.ax-exec-panel');
+  check('хост панели создан', !!panelK);
+  envK.w.AX.settings.catMode = true;
+  envK.w.AX.applyPanelAppearance(panelK);
+  check('при catMode=true хост получает data-ax-cat="on"',
+    panelK.getAttribute('data-ax-cat') === 'on', panelK.getAttribute('data-ax-cat'));
+  envK.w.AX.settings.catMode = false;
+  envK.w.AX.applyPanelAppearance(panelK);
+  check('при catMode=false атрибут снимается', panelK.getAttribute('data-ax-cat') === null);
+
   console.log('\n======================================================');
   console.log('Итог: ' + passed + ' ok, ' + failed + ' fail');
   if (failed) {

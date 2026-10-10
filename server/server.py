@@ -30,13 +30,47 @@ import mcp_client as _mcp  # noqa: E402
 from urllib.parse import urlparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '2.11.1'
+VERSION = '2.11.2'
 MAX_OUTPUT = 1_000_000  # лимит stdout/stderr (меняется флагом --max-output, 0 = без лимита)
 DEFAULT_TIMEOUT = 30
 AUTH_TOKEN = None  # если задан - требуется заголовок X-Auth-Token для POST /run
 LOG_FILE = None  # путь к файлу логов (None = только консоль)
 RATE_LIMIT = 0  # N команд в минуту (0 = без лимита)
 WHITELIST = None  # None = выключен; frozenset префиксов (lowercase) = включён
+
+# Файл со «стабильным» токеном: живёт в домашней папке пользователя, не в репо
+# (иначе секрет уехал бы в git). Так токен не меняется при каждом перезапуске,
+# и расширению не нужно заново настраиваться — работает zero-touch синхронизация.
+TOKEN_FILE = os.path.join(os.path.expanduser('~'), '.ai-execute-runner.token')
+
+
+def _load_or_create_token():
+    """Возвращает сохранённый токен, а если его нет — генерирует и сохраняет.
+
+    Стабильность токена важна: раньше он генерировался заново при каждом
+    запуске, из-за чего сохранённый в расширении токен протухал и команды
+    падали с 401 «invalid or missing token». Теперь расширение синхронизирует
+    токен само (см. GET /ax-token), а стабильный файл не даёт токену «дрожать».
+    """
+    try:
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as fh:
+                saved = fh.read().strip()
+            if saved:
+                return saved
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(24)
+    try:
+        # 0o600 — файл с секретом не должен быть доступен другим пользователям.
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            fh.write(token)
+    except OSError:
+        # Не смогли сохранить (нет прав/read-only домашняя папка) — не падаем:
+        # токен просто будет новым на каждом запуске, а расширение синхронизируется.
+        pass
+    return token
 
 # --- MCP (экспериментально) --------------------------------------------------
 
@@ -769,6 +803,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'ok': True, 'enabled': True, 'servers': MCP_REGISTRY.describe(),
                                'tools': 0, 'config': MCP_REGISTRY.config_path,
                                'config_error': MCP_REGISTRY.load_error})
+        if req_path == '/ax-token':
+            # Zero-touch синхронизация токена: запрос уже прошёл проверку
+            # Origin/Host (_allowed выше) — значит это наше расширение или
+            # локальный клиент, а не чужой сайт (его отсекает DNS-rebinding/
+            # Origin-защита). Отдаём актуальный токен, чтобы расширению не нужна
+            # была ручная ссылка #ax-setup и оно не спотыкалось о 401 после
+            # перезапуска сервера.
+            return self._json({'ok': True, 'auth_required': bool(AUTH_TOKEN),
+                               'token': AUTH_TOKEN or ''})
         if req_path in ('/ping', '/'):
             self._json({'status': 'ok', 'version': VERSION, 'platform': platform.system(),
                         'cwd': os.getcwd(), 'python': sys.version.split()[0],
@@ -1040,8 +1083,10 @@ def main():
         # Явное отключение — только флаг --no-token.
         if args.token is not None:
             print('  [!] --token пустой — отключение только через --no-token; '
-                  'генерирую случайный токен')
-        AUTH_TOKEN = secrets.token_urlsafe(24)
+                  'использую сохранённый токен')
+        # Токен читаем/создаём в файле, чтобы он не менялся между перезапусками
+        # (расширение синхронизирует его само через GET /ax-token).
+        AUTH_TOKEN = _load_or_create_token()
     global LOG_FILE, RATE_LIMIT
     LOG_FILE = args.log.strip() if args.log else None
     RATE_LIMIT = max(0, args.rate_limit)
@@ -1111,10 +1156,12 @@ def main():
     _log(f'  Рабочий каталог: {os.getcwd()}')
     if AUTH_TOKEN:
         # Токен НЕ пишем в файл лога: он секрет, а --log может уехать в облако/тикеты.
-        # В консоль печатаем всегда (пользователю надо его увидеть и скопировать).
+        # В консоль печатаем всегда (пригодится для curl/отладки).
         print(f'  Токен доступа: {AUTH_TOKEN}')
-        print('  Скопируйте его в настройки расширения (поле Токен)')
-        _log('  ---- настройка в один клик ----')
+        _log('  Токен: расширение получает его само (zero-touch), настраивать нечего.')
+        _log('  Если расширение уже установлено — просто работайте; после перезапуска')
+        _log('  сервера оно подхватит токен автоматически (GET /ax-token).')
+        _log('  ---- настройка вручную (запасной путь) ----')
         _log('  Откройте страницу настроек расширения и вставьте ссылку ниже в адресную')
         _log('  строку браузера — адрес и токен подставятся сами:')
         for scheme in ('chrome-extension', 'moz-extension'):

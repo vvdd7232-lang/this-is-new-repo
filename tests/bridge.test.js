@@ -278,6 +278,51 @@ console.log('\n[6b] background: токен маскируется в коман�
   console.log('\n[8] background: контекстное меню создаётся при старте');
   check('пункт меню зарегистрирован', e1.calls.menus.some((m) => m.id === 'ax-run-selection'), e1.calls.menus);
 
+  console.log('\n[11] background: авто-синхронизация токена при 401 (zero-touch)');
+  let runCalls = 0;
+  const eTok = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765', timeout: 30 },
+    local: { authToken: 'STALE-TOK' },
+    fetchImpl: (url, init) => {
+      if (url.endsWith('/ax-token')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, auth_required: true, token: 'FRESH-TOK' }) });
+      }
+      if (url.endsWith('/run')) {
+        runCalls++;
+        const tk = (init.headers || {})['X-Auth-Token'];
+        if (tk === 'FRESH-TOK') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, executed: true }) });
+        return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ error: 'invalid or missing token (X-Auth-Token)' }) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    },
+  });
+  const rTok = await eTok.send({ type: 'AX_RUN', payload: { command: 'cd', runner: 'shell' } });
+  check('401 после перезапуска вылечен авто-синхронизацией', !!(rTok && rTok.ok && rTok.result && rTok.result.executed), rTok);
+  check('токен обновлён в local', eTok.store.local.authToken === 'FRESH-TOK', eTok.store.local);
+  check('повтор /run был со свежим токеном', runCalls === 2, runCalls);
+
+  console.log('\n[12] background: AX_PING подтягивает токен при auth_ok=false');
+  let pingCalls = 0;
+  const ePing = makeBgEnv({
+    sync: { serverUrl: 'http://127.0.0.1:8765' },
+    local: {},
+    fetchImpl: (url, init) => {
+      if (url.endsWith('/ax-token')) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, auth_required: true, token: 'PING-TOK' }) });
+      }
+      if (url.endsWith('/ping')) {
+        pingCalls++;
+        const tk = (init.headers || {})['X-Auth-Token'];
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ status: 'ok', auth_required: true, auth_ok: tk === 'PING-TOK' }) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    },
+  });
+  const rPing = await ePing.send({ type: 'AX_PING' });
+  check('ping сообщил auth_ok=true после синхронизации', !!(rPing && rPing.ok && rPing.info && rPing.info.auth_ok === true), rPing && rPing.info);
+  check('токен сохранён из /ax-token', ePing.store.local.authToken === 'PING-TOK', ePing.store.local);
+  check('ping опрошен дважды (до и после синхронизации)', pingCalls === 2, pingCalls);
+
   await runPopupChecks();
 
   console.log('\n======================================================');

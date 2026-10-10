@@ -31,6 +31,7 @@ const DEFAULTS = {
   uiRadius: 'soft',             // скругление: none | sharp | soft | round | pill
   uiBtnStyle: 'soft',           // кнопки: soft | solid | outline | flat | tile
   uiDensity: 'normal',          // плотность: compact | normal | spacious
+  catMode: false,               // кото-тема: ушки на кнопках, лапки у панели, хвостик у модалок
 };
 
 const axApi = typeof browser !== 'undefined' ? browser : chrome;
@@ -110,6 +111,50 @@ function normUrl(u) {
   return u || DEFAULTS.serverUrl;
 }
 
+// Zero-touch токен: расширение само забирает актуальный токен с локального
+// сервера (GET /ax-token). Сервер отдаёт его только запросам, прошедшим
+// проверку Origin/Host (_allowed): чужие сайты и DNS-rebinding отсекаются,
+// локальный клиент — нет. Это лечит 401 после перезапуска сервера: раньше
+// токен генерировался заново и сохранённое значение протухало.
+async function fetchTokenFromServer(serverUrl) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const res = await fetch(normUrl(serverUrl) + '/ax-token', { signal: ctrl.signal });
+    if (!res.ok) return '';
+    const data = await res.json().catch(() => ({}));
+    const token = data && typeof data.token === 'string' ? data.token : '';
+    if (token) {
+      await axStorageSet('local', { authToken: token });
+      try { await axStorageRemove('sync', ['authToken']); } catch (e) { /* ignore */ }
+    }
+    return token;
+  } catch (e) {
+    return '';  // сервер офлайн/старая версия без /ax-token — не мешаем основному пути
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// fetch к серверу с токеном и однократным авто-повтором при 401: сначала
+// подставляем сохранённый токен; если сервер его отверг (например, перезапуск
+// сменил токен), подтягиваем актуальный через /ax-token и повторяем запрос.
+async function authFetch(base, path, init) {
+  const url = base + path;
+  const token = await getAuthToken();
+  const withToken = (tk) => {
+    const headers = Object.assign({}, (init && init.headers) || {});
+    if (tk) headers['X-Auth-Token'] = tk; else delete headers['X-Auth-Token'];
+    return Object.assign({}, init, { headers });
+  };
+  let res = await fetch(url, withToken(token));
+  if (res.status === 401) {
+    const fresh = await fetchTokenFromServer(base);
+    if (fresh && fresh !== token) res = await fetch(url, withToken(fresh));
+  }
+  return res;
+}
+
 // Одноразовая миграция: старые установки держали токен в storage.sync,
 // который уезжает в облако вендора. Раньше миграцию запускал getSettings(),
 // но токен оттуда убрали — поэтому переезд теперь делаем явно на старте
@@ -120,7 +165,9 @@ async function pingServer(serverUrl) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000);
   try {
-    const res = await fetch(normUrl(serverUrl) + '/ping', { signal: ctrl.signal });
+    // Токен здесь нужен, чтобы сервер честно вернул auth_ok: без заголовка
+    // /ping всегда отвечает auth_ok=false, и попап зря писал «токен не принят».
+    const res = await authFetch(normUrl(serverUrl), '/ping', { signal: ctrl.signal });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
   } finally {
@@ -136,11 +183,9 @@ async function runCommand({ command, runner, timeout, cwd }) {
   const t = setTimeout(() => ctrl.abort(), ((timeout || s.timeout || 30) + 8) * 1000);
   try {
     const headers = { 'Content-Type': 'application/json' };
-    // Токен берём напрямую из хранилища, а не из s.authToken: секрет больше
-    // не отдаётся в настройках (см. getSettings), но в заголовке он нужен.
-    const token = await getAuthToken();
-    if (token) headers['X-Auth-Token'] = token;
-    const res = await fetch(base + '/run', {
+    // Токен и его автомиграция — в authFetch: он же повторит запрос с
+    // актуальным токеном, если сервер ответил 401 (например, после рестарта).
+    const res = await authFetch(base, '/run', {
       method: 'POST',
       headers,
       body: JSON.stringify({ command, runner, timeout: timeout || s.timeout, cwd }),
@@ -189,9 +234,7 @@ async function serverRequest(path, { method = 'GET', body, timeout } = {}) {
   try {
     const headers = {};
     if (method === 'POST') headers['Content-Type'] = 'application/json';
-    const token = await getAuthToken();
-    if (token) headers['X-Auth-Token'] = token;
-    const res = await fetch(base + path, {
+    const res = await authFetch(base, path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -212,10 +255,7 @@ async function mcpStatus() {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const headers = {};
-    const token = await getAuthToken();
-    if (token) headers['X-Auth-Token'] = token;
-    const res = await fetch(base + '/mcp/servers', { headers, signal: ctrl.signal });
+    const res = await authFetch(base, '/mcp/servers', { signal: ctrl.signal });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { reachable: true, enabled: false, servers: [], error: data.error || ('HTTP ' + res.status) };
     return { reachable: true, enabled: !!data.enabled, servers: data.servers || [], config: data.config || '', configError: data.config_error || '' };
@@ -267,7 +307,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true, settings: await getSettings() });
       } else if (msg.type === 'AX_PING') {
         const s = await getSettings();
-        const info = await pingServer(msg.serverUrl || s.serverUrl);
+        const url = msg.serverUrl || s.serverUrl;
+        let info = await pingServer(url);
+        // Сервер требует токен, а наш не подошёл — подтягиваем актуальный
+        // (zero-touch) и проверяем связь ещё раз, чтобы попап не пугал «401».
+        if (info && info.auth_required && info.auth_ok === false) {
+          const got = await fetchTokenFromServer(url);
+          if (got) info = await pingServer(url);
+        }
         sendResponse({ ok: true, info });
       } else if (msg.type === 'AX_RUN') {
         const data = await runCommand(msg.payload || {});

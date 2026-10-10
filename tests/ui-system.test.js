@@ -177,6 +177,15 @@ check('DEFAULTS содержит все 4 настройки оформлени�
   ['uiPalette', 'uiRadius', 'uiBtnStyle', 'uiDensity'].every((k) =>
     new RegExp(k + ": '", 'i').test(coreJs) && new RegExp(k + ": '", 'i').test(optionsJs) &&
     new RegExp(k + ": '", 'i').test(bgJs)));
+// Регрессия v2.11.2: catMode НЕ был в DEFAULTS у background.js, а getSettings()
+// читает только Object.keys(DEFAULTS) — настройка сохранялась из options, но
+// контент-скрипт её не получал, и кото-тема не применялась к панели.
+check('catMode есть в DEFAULTS у background/core/options (иначе не доедет до панели)',
+  /catMode:\s*false/.test(coreJs) && /catMode:\s*false/.test(optionsJs) && /catMode:\s*false/.test(bgJs));
+check('кото-тема продублирована в shadow через :host([data-ax-cat="on"])',
+  /:host\(\[data-ax-cat="on"\]\)\s*\.ax-btn/.test(uiCode));
+check('у панели (хоста) есть правило кото-темы для ::after',
+  /:host\(\[data-ax-cat="on"\]\.ax-exec-panel\)::after/.test(uiCode));
 check('для каждой палитры есть тёмный вариант',
   PALETTES.every((p) =>
     ui.includes('[data-ax-theme="dark"][data-ax-palette="' + p + '"]')));

@@ -704,5 +704,87 @@ class TestVersion(unittest.TestCase):
         self.assertEqual(server.VERSION, cr)
 
 
+class TestTokenAutosync(unittest.TestCase):
+    """Zero-touch токен: он должен переживать перезапуск сервера (файл), а
+    расширение — забирать актуальный токен через GET /ax-token. Раньше токен
+    генерировался заново каждый запуск, и команды падали с 401."""
+
+    def setUp(self):
+        import tempfile
+        self._saved_file = server.TOKEN_FILE
+        self._saved_token = server.AUTH_TOKEN
+        fd, self.tmp = tempfile.mkstemp(suffix='.token')
+        os.close(fd)
+        os.remove(self.tmp)  # начинаем с «файла нет»
+        server.TOKEN_FILE = self.tmp
+
+    def tearDown(self):
+        server.TOKEN_FILE = self._saved_file
+        server.AUTH_TOKEN = self._saved_token
+        try:
+            os.remove(self.tmp)
+        except OSError:
+            pass
+
+    def test_token_is_created_and_persisted(self):
+        first = server._load_or_create_token()
+        self.assertTrue(first)
+        self.assertTrue(os.path.exists(self.tmp))
+        # Второй вызов читает тот же файл — токен стабилен между запусками.
+        self.assertEqual(server._load_or_create_token(), first)
+
+    def test_existing_token_file_is_reused(self):
+        with open(self.tmp, 'w', encoding='utf-8') as fh:
+            fh.write('MY-STABLE-TOKEN')
+        self.assertEqual(server._load_or_create_token(), 'MY-STABLE-TOKEN')
+
+    def _req(self, path, origin=None):
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        srv.daemon_threads = True
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            conn = http.client.HTTPConnection('127.0.0.1', srv.server_address[1], timeout=5)
+            headers = {'Host': '127.0.0.1'}
+            if origin:
+                headers['Origin'] = origin
+            conn.request('GET', path, headers=headers)
+            resp = conn.getresponse()
+            raw = resp.read()
+            return resp.status, json.loads(raw.decode('utf-8'))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_ax_token_returns_current_token(self):
+        server.AUTH_TOKEN = 'current-secret'
+        status, data = self._req('/ax-token')
+        self.assertEqual(status, 200)
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['auth_required'])
+        self.assertEqual(data['token'], 'current-secret')
+
+    def test_ax_token_reflects_disabled_auth(self):
+        server.AUTH_TOKEN = None
+        status, data = self._req('/ax-token')
+        self.assertEqual(status, 200)
+        self.assertFalse(data['auth_required'])
+        self.assertEqual(data['token'], '')
+
+    def test_ax_token_rejects_foreign_origin(self):
+        server.AUTH_TOKEN = 'current-secret'
+        status, _ = self._req('/ax-token', origin='https://evil.example')
+        self.assertEqual(status, 403)
+
+    def test_ax_token_allows_extension_origin(self):
+        server.AUTH_TOKEN = 'current-secret'
+        status, data = self._req('/ax-token', origin='chrome-extension://abcdefghijklmnop')
+        self.assertEqual(status, 200)
+        self.assertEqual(data['token'], 'current-secret')
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

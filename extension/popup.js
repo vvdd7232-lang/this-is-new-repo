@@ -74,7 +74,7 @@ async function ping() {
         const info = resp.info || {};
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
-          box.textContent = '⚠️ Сервер на связи, но токен не принят. Открой ссылку из консоли server.py.';
+          box.textContent = '⚠️ Сервер на связи, но токен не принят. Обнови server.py или открой ссылку из его консоли.';
         } else if (info.auth_required && info.auth_ok === true) {
           box.className = 'status ok';
           box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
@@ -97,7 +97,7 @@ async function ping() {
         const info = resp.info || {};
         if (info.auth_required && info.auth_ok === false) {
           box.className = 'status err';
-          box.textContent = '⚠️ Сервер на связи, но токен не принят. Открой ссылку из консоли server.py.';
+          box.textContent = '⚠️ Сервер на связи, но токен не принят. Обнови server.py или открой ссылку из его консоли.';
         } else if (info.auth_required && info.auth_ok === true) {
           box.className = 'status ok';
           box.textContent = '✅ Сервер на связи, токен принят: ' + JSON.stringify(info);
